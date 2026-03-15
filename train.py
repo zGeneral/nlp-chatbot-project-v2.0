@@ -80,6 +80,7 @@ def train_epoch(
     epoch: int,
     writer: SummaryWriter,
     global_step: int,
+    scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau = None,
 ) -> Tuple[float, float, int]:
     """
     One training epoch with bf16 AMP and gradient accumulation.
@@ -201,7 +202,7 @@ def train_epoch(
                         "global_step": global_step,
                         "model_state_dict": model.state_dict(),
                         "optimizer_state": optimizer.state_dict(),
-                        "scheduler_state": scheduler.state_dict(),
+                        "scheduler_state": scheduler.state_dict() if scheduler is not None else None,
                         "train_loss_so_far": total_loss / max(n_updates, 1),
                         "tf_ratio": tf_ratio,
                     },
@@ -467,6 +468,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             epoch=epoch,
             writer=writer,
             global_step=global_step,
+            scheduler=scheduler,
         )
 
         # 7c. Validate.
