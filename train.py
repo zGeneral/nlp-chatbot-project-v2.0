@@ -425,7 +425,13 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     # Compiling AFTER checkpoint load avoids state_dict key mismatches that
     # can occur if the model is compiled before load_state_dict in some
     # PyTorch versions. Only enabled on CUDA (A100); MPS/CPU gain little.
-    if torch.cuda.is_available() and hasattr(torch, "compile"):
+    # Skipped on Windows: torch.compile's default inductor backend requires
+    # Triton, which has no Windows support (fails on first forward call, not
+    # at compile time, so a try/except around compile() is not sufficient).
+    import sys as _sys
+    if (torch.cuda.is_available()
+            and hasattr(torch, "compile")
+            and _sys.platform != "win32"):
         try:
             model = torch.compile(model)
             print(f"[{model_type}] torch.compile enabled — first epoch will be slower (compilation)")
