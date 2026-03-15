@@ -52,7 +52,7 @@ _TRAINING = {
     "grad_accum_steps":      2,       # effective batch = batch_size × grad_accum_steps = 512
     "num_epochs":            20,      # total training epochs
     "amp_dtype":             "bfloat16",  # automatic mixed precision dtype
-    "patience":              5,       # early stopping patience (0 = disabled); monitoring
+    "patience":              4,       # early stopping patience (0 = disabled); monitoring
                                       # begins only after Phase 1 ends (see get_tf_ratio)
 }
 
@@ -97,9 +97,8 @@ _TF_SCHEDULE = {
 #
 # scheduler.step(val_loss) is called ONCE PER EPOCH after validation.
 _LR_SCHEDULER = {
-    "lr_patience":     3,     # epochs of no improvement before halving LR
-    "lr_factor":       0.5,   # multiplicative factor applied on plateau
-    "lr_min":          1e-5,  # absolute lower bound on LR
+    "lr_scheduler_patience": 3,    # ReduceLROnPlateau patience (epochs)
+    "lr_scheduler_factor":   0.5,  # LR multiplicative decay factor on plateau
 }
 
 # ── Loss ──────────────────────────────────────────────────────────────────────

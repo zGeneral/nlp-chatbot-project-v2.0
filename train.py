@@ -314,8 +314,8 @@ def build_optimizer_and_scheduler(
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",
-        factor=config.get("lr_factor", 0.5),
-        patience=config.get("lr_patience", 3),
+        factor=config.get("lr_scheduler_factor", 0.5),
+        patience=config.get("lr_scheduler_patience", 3),
         min_lr=config.get("lr_min", 1e-5),
     )
     return optimizer, scheduler
