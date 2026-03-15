@@ -45,39 +45,65 @@ _ARCHITECTURE = {
 
 # ── Training ──────────────────────────────────────────────────────────────────
 _TRAINING = {
-    "learning_rate":         3e-4,    # flat LR, no warmup
+    "learning_rate":         3e-4,    # peak LR (reached after warmup; cosine decays from here)
     "weight_decay":          1e-5,    # L2 regularisation
     "max_grad_norm":         1.0,     # gradient clipping threshold (gentler than 0.5)
     "batch_size":            256,     # per-step batch size
     "grad_accum_steps":      2,       # effective batch = batch_size × grad_accum_steps = 512
     "num_epochs":            20,      # total training epochs
     "amp_dtype":             "bfloat16",  # automatic mixed precision dtype
+    "patience":              4,       # early stopping patience (0 = disabled); monitoring
+                                      # begins only after Phase 1 ends (see get_tf_ratio)
 }
 
 # ── Teacher-Forcing Schedule ───────────────────────────────────────────────────
-# Pure epoch-lookup table — no decay formula.
-# Epochs 1–15:  TF = 1.0  (full teacher forcing)
-# Epochs 16–18: TF = 0.8  (slight exposure bias correction)
-# Epochs 19–20: TF = 0.5  (free-running warm-up before inference)
+# 3-phase schedule with gradual annealing to address exposure bias.
+#
+# Insight from run 1: epochs 1–5 under TF=1.0 produce large loss drops (~5.5→4.25).
+# Epochs 6–15 under TF=1.0 yield only ~0.13 additional loss reduction while
+# deepening exposure bias. The dramatic val_loss improvement at TF=0.8/0.5 in
+# the baseline (7.89→6.00) confirms the representations are good — the decoder
+# just needs to practice self-feeding earlier.
+#
+# Phase 1 — Foundation  (epochs  1– 5): TF = 1.0        (burn in representations)
+# Phase 2 — Annealing   (epochs  6–12): TF 0.9 → 0.5    (linear decay, per-epoch)
+# Phase 3 — Maturation  (epochs 13–20): TF = 0.5         (floor; both models stabilise)
+#
+# TF floor is 0.5 for both models. The baseline decoder has no attention to recover
+# from compounding errors; TF < 0.5 causes collapse. Floor is kept identical for
+# a fair apples-to-apples ablation.
 _TF_SCHEDULE = {
     "tf_schedule": {
-        "phase1_end":  15,   # last epoch (inclusive) at TF = phase1_tf
-        "phase1_tf":   1.0,  # TF ratio for epochs 1 through phase1_end
-        "phase2_end":  18,   # last epoch (inclusive) at TF = phase2_tf
-        "phase2_tf":   0.8,  # TF ratio for epochs phase1_end+1 through phase2_end
-        "phase3_tf":   0.5,  # TF ratio for all remaining epochs
+        "phase1_end":       5,    # last epoch (inclusive) at TF = phase1_tf
+        "phase1_tf":        1.0,  # TF ratio for epochs 1 → phase1_end
+        "phase2_end":       12,   # last epoch (inclusive) of linear annealing
+        "phase2_start_tf":  0.9,  # TF at the first epoch of phase 2 (phase1_end + 1)
+        "phase2_end_tf":    0.5,  # TF at the last epoch of phase 2 (phase2_end)
+        "phase3_tf":        0.5,  # floor TF held for all remaining epochs
     },
 }
 
 # ── LR Scheduler ──────────────────────────────────────────────────────────────
+# Cosine annealing with linear warmup (replaces ReduceLROnPlateau).
+#
+# Rationale: ReduceLROnPlateau was premature-triggering during the old TF=1.0 phase
+# (flat/climbing val loss) and wasting the LR budget before TF annealing where
+# the model most needs to adapt. A cosine schedule is deterministic and
+# well-matched to a fixed epoch budget; warmup avoids large initial gradients.
+#
+# scheduler.step() is called once per OPTIMIZER STEP (not per epoch) in train_epoch().
 _LR_SCHEDULER = {
-    "lr_scheduler_patience": 3,    # ReduceLROnPlateau patience (epochs)
-    "lr_scheduler_factor":   0.5,  # LR multiplicative decay factor on plateau
+    "lr_warmup_steps": 500,   # linear warmup: LR ramps from ~0 → peak over this many steps
+    "lr_min":          1e-5,  # cosine annealing floor (tail of decay)
 }
 
 # ── Loss ──────────────────────────────────────────────────────────────────────
+# Label smoothing is ON at 0.1.
+# With the new TF schedule, TF=1.0 only lasts 5 epochs (not 15), so the model
+# spends most of training in the annealing/maturation phases where preventing
+# overconfident token predictions directly improves autoregressive generation.
 _LOSS = {
-    "label_smoothing":       0.0,  # OFF — smoothing fights the model at TF=1.0
+    "label_smoothing":       0.1,
 }
 
 # ── Data ──────────────────────────────────────────────────────────────────────
@@ -157,20 +183,32 @@ def set_seed(seed: int = 42) -> None:
 def get_tf_ratio(epoch: int, config: dict) -> float:
     """Return the teacher-forcing ratio for a given 1-indexed epoch.
 
-    The ratio is determined by a pure epoch-lookup table stored in
-    ``config["tf_schedule"]``; no decay formula is used.
+    Three phases:
+      Phase 1 (epochs 1 → phase1_end):         TF = phase1_tf  (constant, full TF)
+      Phase 2 (epochs phase1_end+1 → phase2_end): TF decays linearly from
+                                                  phase2_start_tf → phase2_end_tf
+      Phase 3 (epochs phase2_end+1 → end):     TF = phase3_tf  (constant floor)
+
+    The phase-2 decay uses the formula from the training spec:
+        tf = phase2_start_tf
+             - (epoch - phase2_start_epoch)
+             * (phase2_start_tf - phase2_end_tf) / (phase2_end - phase2_start_epoch)
 
     Examples::
 
-        >>> get_tf_ratio(1,  CONFIG)   # → 1.0  (phase 1)
-        >>> get_tf_ratio(16, CONFIG)   # → 0.8  (phase 2)
-        >>> get_tf_ratio(19, CONFIG)   # → 0.5  (phase 3)
+        >>> get_tf_ratio(1,  CONFIG)   # → 1.0   (phase 1)
+        >>> get_tf_ratio(5,  CONFIG)   # → 1.0   (phase 1, last epoch)
+        >>> get_tf_ratio(6,  CONFIG)   # → 0.9   (phase 2, first epoch)
+        >>> get_tf_ratio(9,  CONFIG)   # → 0.7   (phase 2, midpoint)
+        >>> get_tf_ratio(12, CONFIG)   # → 0.5   (phase 2, last epoch)
+        >>> get_tf_ratio(13, CONFIG)   # → 0.5   (phase 3)
+        >>> get_tf_ratio(20, CONFIG)   # → 0.5   (phase 3)
 
     Args:
         epoch:  Current training epoch, **1-indexed**.
         config: Config dict containing a ``"tf_schedule"`` sub-dict with keys
-                ``phase1_end``, ``phase1_tf``, ``phase2_end``, ``phase2_tf``,
-                and ``phase3_tf``.
+                ``phase1_end``, ``phase1_tf``, ``phase2_end``,
+                ``phase2_start_tf``, ``phase2_end_tf``, and ``phase3_tf``.
 
     Returns:
         Teacher-forcing ratio as a float in [0, 1].
@@ -179,7 +217,15 @@ def get_tf_ratio(epoch: int, config: dict) -> float:
     if epoch <= schedule["phase1_end"]:
         return schedule["phase1_tf"]
     if epoch <= schedule["phase2_end"]:
-        return schedule["phase2_tf"]
+        # Linear interpolation: phase2_start_tf → phase2_end_tf over
+        # the epochs in [phase1_end+1, phase2_end].
+        phase2_start_epoch = schedule["phase1_end"] + 1
+        tf_range = schedule["phase2_start_tf"] - schedule["phase2_end_tf"]
+        step_range = schedule["phase2_end"] - phase2_start_epoch   # denominator
+        tf = schedule["phase2_start_tf"] - (epoch - phase2_start_epoch) * (
+            tf_range / step_range
+        )
+        return tf
     return schedule["phase3_tf"]
 
 

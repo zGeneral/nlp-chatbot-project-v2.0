@@ -2,26 +2,42 @@
 train.py — Training loop for clean-from-scratch Seq2Seq chatbot.
 
 Trains both "baseline" (no attention) and "attention" (Bahdanau) models.
-The training regime is the single most important departure from the prior codebase:
+Both models are trained with identical hyperparameters — the only difference
+is the attention mechanism — providing a controlled apples-to-apples ablation.
 
-  TEACHER FORCING STRATEGY (key decision):
-    Epochs  1–15:  TF = 1.0  — model always sees correct tokens; burns in sharp patterns
-    Epochs 16–18:  TF = 0.8  — gentle awareness of own output errors
-    Epochs 19–20:  TF = 0.5  — minimal adaptation; patterns already locked in
+  TEACHER FORCING STRATEGY (3-phase schedule):
+    Epochs  1– 5:  TF = 1.0        — Foundation: burn in basic token representations.
+                                      Loss drops from ~5.5 → ~4.25 here.
+    Epochs  6–12:  TF 0.9 → 0.5    — Annealing: linear decay; decoder begins
+                                      practicing self-feeding while representations
+                                      are still being refined.
+    Epochs 13–20:  TF = 0.5        — Maturation: hold at floor; both models
+                                      fully adapt to semi-autoregressive generation.
 
-  Rationale:
-    The prior codebase decayed TF to 0.25, which caused the perplexity-quality
-    inversion: better val_loss = more generic output. TF=1.0 for most of training
-    is empirically validated by osamadev/seq2seq-chatbot (BLEU-4=0.1386) which
-    uses TF=1.0 for all 10 epochs.
+  TF floor = 0.5 for both models. The baseline decoder has no attention to
+  recover from compounding errors; TF < 0.5 causes collapse. Floor is kept
+  identical for a fair comparison.
 
-  LR STRATEGY:
-    Flat LR=3e-4, AdamW, no warmup.
-    Prior codebase: LR=3e-3 + complex warmup + ReduceLROnPlateau → Sisyphus trap.
-    Conservative flat LR avoids second-moment calibration issues at TF transitions.
+  Rationale for change from run 1:
+    Run 1 kept TF=1.0 for 15 epochs, deepening exposure bias with diminishing
+    returns (only ~0.13 loss reduction in epochs 6–15). The baseline's dramatic
+    val_loss drop (7.89→6.00) when TF finally annealed proved the learned
+    representations were valuable but locked behind exposure bias. Annealing
+    from epoch 6 unlocks this 7-epoch window that was previously wasted.
+
+  LR STRATEGY: cosine annealing with linear warmup.
+    500-step warmup (LR: 0 → 3e-4), then cosine decay to 1e-5.
+    Replaces ReduceLROnPlateau, which was prematurely reducing LR during the
+    flat-val-loss TF=1.0 phase and wasting the LR budget.
+    scheduler.step() is called per OPTIMIZER STEP (not per epoch).
+
+  EARLY STOPPING:
+    Patience = 4 epochs, monitored only from Phase 2 onward (epoch > 5).
+    Val loss under autoregressive evaluation is not meaningful during Phase 1
+    because the model isn't yet training for that objective.
 
   GRADIENT CLIPPING:
-    clip=1.0 (prior: 0.5). Allows valid large gradients during TF=1.0 phase.
+    clip = 1.0. Allows valid large gradients during TF=1.0 phase.
 """
 
 import os
@@ -151,6 +167,7 @@ def train_epoch(
                 continue
 
             optimizer.step()
+            scheduler.step()   # cosine/warmup scheduler steps per optimizer step, not per epoch
             optimizer.zero_grad(set_to_none=True)
 
             # global_step = optimizer steps, NOT forward passes.
@@ -163,6 +180,7 @@ def train_epoch(
             # ── TensorBoard step-level logging ──────────────────────────────
             writer.add_scalar("train/loss_step", loss.item(), global_step)
             writer.add_scalar("train/grad_norm_step", grad_norm, global_step)
+            writer.add_scalar("train/lr_step", optimizer.param_groups[0]["lr"], global_step)
 
             # ── Periodic checkpoint (atomic: write .tmp then os.replace) ────
             if global_step % periodic_ckpt_steps == 0:
@@ -253,12 +271,30 @@ def evaluate_epoch(
 def build_optimizer_and_scheduler(
     model: nn.Module,
     config: dict,
-) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.ReduceLROnPlateau]:
+    total_steps: int,
+) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.SequentialLR]:
     """
-    Build AdamW optimizer and ReduceLROnPlateau scheduler.
+    Build AdamW optimizer and a cosine-annealing scheduler with linear warmup.
 
-    No warmup: LR=3e-4 is already conservative; warmup would waste epochs.
-    ReduceLROnPlateau activates from epoch 1 (not post-warmup).
+    Schedule (both phases are chained via SequentialLR):
+      1. Warmup  — LR ramps linearly from ~0 → peak (learning_rate) over
+                   ``lr_warmup_steps`` optimizer steps.
+      2. Cosine  — LR decays from peak → ``lr_min`` via cosine annealing
+                   over the remaining (total_steps - lr_warmup_steps) steps.
+
+    IMPORTANT: scheduler.step() must be called once per optimizer step
+    (inside train_epoch), NOT once per epoch on validation loss.
+
+    Replaces ReduceLROnPlateau, which was prematurely reducing LR during the
+    flat-val-loss TF=1.0 phase and wasting the LR budget before TF annealing.
+
+    Args:
+        model:        The model whose parameters to optimise.
+        config:       CONFIG dict — must contain ``learning_rate``,
+                      ``weight_decay``, ``lr_warmup_steps``, ``lr_min``.
+        total_steps:  Total optimizer steps for the full training run.
+                      Compute as: num_epochs * (len(train_loader) // grad_accum_steps).
+                      Used to size the cosine tail correctly.
 
     Returns:
         (optimizer, scheduler)
@@ -268,11 +304,32 @@ def build_optimizer_and_scheduler(
         lr=config["learning_rate"],
         weight_decay=config["weight_decay"],
     )
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+
+    warmup_steps: int = config.get("lr_warmup_steps", 500)
+    lr_min: float = config.get("lr_min", 1e-5)
+    cosine_steps: int = max(total_steps - warmup_steps, 1)
+
+    # Linear warmup: multiply base LR by a factor that grows from
+    # 1/warmup_steps → 1.0 over warmup_steps steps (≈ 0 → peak LR).
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer,
-        mode="min",
-        patience=config["lr_scheduler_patience"],
-        factor=config["lr_scheduler_factor"],
+        start_factor=1.0 / warmup_steps,
+        end_factor=1.0,
+        total_iters=warmup_steps,
+    )
+
+    # Cosine annealing: decay from peak LR → lr_min over the remaining steps.
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=cosine_steps,
+        eta_min=lr_min,
+    )
+
+    # Chain: first warmup_steps use LinearLR, then switch to CosineAnnealingLR.
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_steps],
     )
     return optimizer, scheduler
 
@@ -311,7 +368,10 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     print(f"\n[{model_type}] Trainable parameters: {num_params:,}")
 
     # ── 3. Optimizer + scheduler ──────────────────────────────────────────────
-    optimizer, scheduler = build_optimizer_and_scheduler(model, config)
+    # total_steps must be computed AFTER building the dataloader so we know
+    # len(train_loader). Cosine annealing needs this to size the decay tail.
+    total_steps = config["num_epochs"] * (len(train_loader) // config["grad_accum_steps"])
+    optimizer, scheduler = build_optimizer_and_scheduler(model, config, total_steps)
 
     # ── 4. Loss ───────────────────────────────────────────────────────────────
     # label_smoothing=0.0 during TF=1.0 phase — smoothing fights sharp token
@@ -396,9 +456,8 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             amp_dtype=_amp_dtype,
         )
 
-        # 7d. LR scheduler step on validation loss.
-        scheduler.step(val_loss)
-
+        # 7d. LR is now stepped per optimizer step inside train_epoch();
+        #     no epoch-level scheduler.step() needed here.
         elapsed = time.time() - epoch_start
         lr: float = optimizer.param_groups[0]["lr"]
 
@@ -450,8 +509,11 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         history["tf_ratios"].append(tf_ratio)
         history["lrs"].append(lr)
 
-        # Early stopping (used by train_mini; disabled when patience=0).
-        if _patience > 0:
+        # Early stopping — only monitored from Phase 2 onward.
+        # During Phase 1 (TF=1.0), autoregressive val loss is not meaningful
+        # because the model isn't yet training for that objective; counting
+        # non-improvements there would trigger a premature stop.
+        if _patience > 0 and epoch > config["tf_schedule"]["phase1_end"]:
             if _improved:
                 _no_improve = 0
             else:
