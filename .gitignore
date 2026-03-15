@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.env/
+.venv/
+
+# Model artifacts & checkpoints (large files — use placeholder dirs)
+artifacts/*.pt
+artifacts/*.pth
+artifacts/*.pkl
+artifacts/*.json
+artifacts/*.csv
+artifacts/*.bpe
+artifacts_mini/*.pt
+artifacts_mini/*.pth
+artifacts_mini/*.pkl
+artifacts_mini/*.json
+artifacts_mini/*.csv
+artifacts_mini/*.bpe
+checkpoints_mini/*.pt
+checkpoints_mini/*.pth
+
+# Logs
+logs/*.log
+logs/*.txt
+tb_logs_mini/
+
+# Data (large corpus files)
+data/Ubuntu-dialogue-corpus/*.csv
+data/Ubuntu-dialogue-corpus/*.tsv
+data/Ubuntu-dialogue-corpus/*.txt
+data/Ubuntu-dialogue-corpus/*.gz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets / credentials
+*.env
+secrets.yaml
