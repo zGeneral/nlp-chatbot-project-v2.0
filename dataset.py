@@ -26,6 +26,94 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
 
 
+class BucketBatchSampler:
+    """
+    Batch sampler that groups sequences by context length to minimise padding.
+
+    The Ubuntu corpus has high length variance (contexts range from 5 to 100
+    tokens). With a random sampler, a batch of 256 sequences is padded to the
+    length of the longest context in that batch — often near the 100-token cap.
+    Most sequences are much shorter, so the majority of LSTM steps process <pad>.
+
+    Algorithm (per epoch):
+      1. Shuffle all sample indices randomly (seed + epoch for reproducibility).
+      2. Split into non-overlapping buckets of `batch_size * bucket_size_factor`
+         samples each.  Within each bucket, sort by ctx length — samples of
+         similar length will end up in the same batch.
+      3. Form batches of `batch_size` from the sorted buckets.
+      4. Shuffle batch order (within-bucket sort is invisible to the model —
+         only the order of batches within an epoch varies).
+
+    Result: LSTM unroll depth per batch ≈ mean(ctx lengths in bucket) instead
+    of max(ctx lengths in dataset). Expected speedup: 20–40% per epoch.
+
+    Use ``set_epoch(epoch)`` each epoch so the shuffle varies while remaining
+    reproducible across restarts.
+    """
+
+    def __init__(
+        self,
+        dataset,
+        batch_size: int,
+        bucket_size_factor: int = 100,  # bucket = batch_size × factor samples
+        drop_last: bool = True,
+        seed: int = 42,
+    ) -> None:
+        self.batch_size = batch_size
+        self.drop_last = drop_last
+        self.seed = seed
+        self.bucket_size = batch_size * bucket_size_factor
+        self.epoch = 0
+
+        # Precompute ctx lengths once — used for sorting within each bucket.
+        # Handle both full UbuntuPairDataset and torch.utils.data.Subset.
+        if hasattr(dataset, "dataset") and hasattr(dataset, "indices"):
+            base = dataset.dataset
+            self._lengths = [len(base.pairs[i]["ctx"]) for i in dataset.indices]
+        else:
+            self._lengths = [len(p["ctx"]) for p in dataset.pairs]
+
+        self._n = len(self._lengths)
+
+    def set_epoch(self, epoch: int) -> None:
+        """Call once per epoch before iterating to vary the bucket shuffle."""
+        self.epoch = epoch
+
+    def __iter__(self):
+        import random as _rng
+        rng = _rng.Random(self.seed + self.epoch)
+
+        # Step 1 — global shuffle preserves stochasticity across buckets.
+        indices = list(range(self._n))
+        rng.shuffle(indices)
+
+        # Step 2 — sort within each bucket by ctx length.
+        buckets = []
+        for start in range(0, len(indices), self.bucket_size):
+            bucket = indices[start: start + self.bucket_size]
+            bucket.sort(key=lambda i: self._lengths[i])
+            buckets.append(bucket)
+
+        # Step 3 — form fixed-size batches from the sorted stream.
+        flat = [i for bucket in buckets for i in bucket]
+        batches = [flat[i: i + self.batch_size]
+                   for i in range(0, len(flat), self.batch_size)]
+
+        if self.drop_last and batches and len(batches[-1]) < self.batch_size:
+            batches.pop()
+
+        # Step 4 — shuffle batch order so the model doesn't see length-ordered
+        # batches epoch after epoch (would bias gradient statistics).
+        rng.shuffle(batches)
+
+        yield from batches
+
+    def __len__(self) -> int:
+        if self.drop_last:
+            return self._n // self.batch_size
+        return (self._n + self.batch_size - 1) // self.batch_size
+
+
 class UbuntuPairDataset(Dataset):
     """
     Loads BPE-tokenised Ubuntu dialogue pairs from a JSONL file produced by
@@ -177,38 +265,41 @@ def build_dataloaders(
 
     pin = torch.cuda.is_available()
 
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        shuffle=True,
-        drop_last=True,
+    # Common kwargs for all three loaders.
+    # prefetch_factor keeps the GPU fed between LSTM forward passes; only valid
+    # when num_workers > 0 (DataLoader raises if set with num_workers=0).
+    _common = dict(
         collate_fn=_collate,
         num_workers=num_workers,
         pin_memory=pin,
         worker_init_fn=_worker_init_fn if num_workers > 0 else None,
         persistent_workers=num_workers > 0,
+        **({"prefetch_factor": 4} if num_workers > 0 else {}),
     )
+
+    # Train loader uses BucketBatchSampler to minimise padding waste.
+    # batch_sampler is incompatible with batch_size/shuffle/drop_last kwargs.
+    _bucket = BucketBatchSampler(
+        train_ds,
+        batch_size=batch_size,
+        drop_last=True,
+        seed=42,
+    )
+    train_loader = DataLoader(train_ds, batch_sampler=_bucket, **_common)
+
     val_loader = DataLoader(
         val_ds,
         batch_size=batch_size,
         shuffle=False,
         drop_last=False,
-        collate_fn=_collate,
-        num_workers=num_workers,
-        pin_memory=pin,
-        worker_init_fn=_worker_init_fn if num_workers > 0 else None,
-        persistent_workers=num_workers > 0,
+        **_common,
     )
     test_loader = DataLoader(
         test_ds,
         batch_size=batch_size,
         shuffle=False,
         drop_last=False,
-        collate_fn=_collate,
-        num_workers=num_workers,
-        pin_memory=pin,
-        worker_init_fn=_worker_init_fn if num_workers > 0 else None,
-        persistent_workers=num_workers > 0,
+        **_common,
     )
 
     return train_loader, val_loader, test_loader

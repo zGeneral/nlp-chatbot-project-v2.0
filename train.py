@@ -421,6 +421,17 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         print(f"[{model_type}] Resumed at epoch {start_epoch}, step {global_step}, "
               f"best_val={best_val_loss:.4f}")
 
+    # ── 6b. torch.compile — JIT-compile the model after weights are loaded ────
+    # Compiling AFTER checkpoint load avoids state_dict key mismatches that
+    # can occur if the model is compiled before load_state_dict in some
+    # PyTorch versions. Only enabled on CUDA (A100); MPS/CPU gain little.
+    if torch.cuda.is_available() and hasattr(torch, "compile"):
+        try:
+            model = torch.compile(model)
+            print(f"[{model_type}] torch.compile enabled — first epoch will be slower (compilation)")
+        except Exception as e:
+            print(f"[{model_type}] torch.compile skipped: {e}")
+
     num_epochs: int = config["num_epochs"]
     print(f"[{model_type}] Training epochs {start_epoch}–{num_epochs}")
 
@@ -429,6 +440,12 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         epoch_start = time.time()
         if torch.cuda.is_available():
             torch.cuda.synchronize()   # flush async GPU ops so wall time is accurate
+
+        # Advance bucket sampler seed so each epoch shuffles differently.
+        if hasattr(train_loader, "batch_sampler") and hasattr(
+            train_loader.batch_sampler, "set_epoch"
+        ):
+            train_loader.batch_sampler.set_epoch(epoch)
 
         # 7a. Teacher forcing ratio for this epoch (constant within epoch).
         tf_ratio = get_tf_ratio(epoch, config)
