@@ -1,39 +1,35 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Requirements for new/ (clean-from-scratch Seq2Seq chatbot)
+# Requirements — NLP Seq2Seq Chatbot (RTX 3080 12 GB)
 # Ubuntu Dialogue Corpus · SentencePiece BPE · Bidirectional LSTM
 # ──────────────────────────────────────────────────────────────────────────────
 #
-# PyTorch — must be installed separately for your hardware.
-# Pick the right command and run it BEFORE `pip install -r requirements.txt`.
+# Install PyTorch first (before this file), matching your CUDA version:
 #
-#   Google Colab A100 (CUDA 12.x — default on Colab):
-#     pip install torch --upgrade
-#
-#   Windows / Linux NVIDIA GPU (CUDA 12.4):
+#   CUDA 12.4 (recommended — newer drivers):
 #     pip install torch --index-url https://download.pytorch.org/whl/cu124
 #
-#   Windows / Linux NVIDIA GPU (CUDA 11.8, older drivers):
+#   CUDA 11.8 (older drivers):
 #     pip install torch --index-url https://download.pytorch.org/whl/cu118
 #
-#   Apple Silicon (MPS) or CPU only:
+#   CPU only / Apple Silicon:
 #     pip install torch
 #
 #   Check your CUDA version: nvidia-smi (top-right corner)
 #   Full selector: https://pytorch.org/get-started/locally/
 #
-#   NOTE: bf16 mixed precision requires A100, H100, or RTX 3090+.
+#   NOTE: bf16 mixed precision requires Ampere+ (RTX 3080/3090, A100).
 #         On older cards the code falls back to fp32 automatically.
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Core deep learning ────────────────────────────────────────────────────────
-torch>=2.1.0                # bf16 AMP, compile(), A100 support
+torch>=2.1.0                # bf16 AMP, torch.compile, Ampere TF32 support
 numpy>=1.24.0
 
 # ── Tokenisation ─────────────────────────────────────────────────────────────
-sentencepiece>=0.1.99       # SentencePiece BPE (phase1 stage 5 + 6)
+sentencepiece>=0.1.99       # SentencePiece BPE (phase1 stages 5–6)
 
 # ── Embeddings ───────────────────────────────────────────────────────────────
-gensim>=4.3.0               # FastText 300d (phase1 stage 7)
+gensim>=4.3.0               # FastText 300d skip-gram (phase1 stage 7)
 
 # ── Evaluation metrics ────────────────────────────────────────────────────────
 sacrebleu>=2.3.1            # BLEU-1/2/3/4 with 13a tokeniser
@@ -41,9 +37,10 @@ rouge-score>=0.1.2          # ROUGE-L
 bert-score>=0.3.13          # BERTScore F1 (pulls in transformers)
 
 # ── Visualisation ─────────────────────────────────────────────────────────────
-matplotlib>=3.7.0           # attention heatmaps, training curves
+matplotlib>=3.7.0           # training curves, attention heatmaps
 seaborn>=0.12.0             # heatmap styling in evaluate.py
+scienceplots>=2.0.0         # IEEE/publication-quality plot style (plot_training.py)
 
 # ── Training utilities ────────────────────────────────────────────────────────
-tqdm>=4.65.0                # progress bars in training loops
-tensorboard>=2.12.0         # loss / LR curves (SummaryWriter in train.py)
+tqdm>=4.65.0                # progress bars
+tensorboard>=2.12.0         # loss/LR curves (launch: tensorboard --logdir tb_logs/)

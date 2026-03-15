@@ -6,15 +6,10 @@ side by side.  If checkpoints are not specified via CLI, presents an
 interactive numbered list of available .pt files from the checkpoint dir.
 
 Usage:
-    # Local paths:
     python chatv2.py
     python chatv2.py --decoding beam --beam-width 5
     python chatv2.py --baseline checkpoints/baseline_best.pt \
                      --attention checkpoints/attention_best.pt
-
-    # Google Drive (Colab):
-    python chatv2.py --drive-dir /content/drive/MyDrive/nlp-chatbot-v2
-    python chatv2.py --drive-dir /content/drive/MyDrive/nlp-chatbot-v2 --decoding beam
 
 Runtime commands (type in chat):
     :mode greedy         switch to greedy decoding
@@ -466,15 +461,6 @@ def main():
     parser = argparse.ArgumentParser(
         description="Dual-model comparison chat with greedy / top-p / beam search."
     )
-    parser.add_argument(
-        "--drive-dir",
-        default=None,
-        metavar="PATH",
-        help=(
-            "Google Drive root (e.g. /content/drive/MyDrive/nlp-chatbot-v2). "
-            "Sets --checkpoint-dir and --artifact-dir automatically."
-        ),
-    )
     parser.add_argument("--baseline",  default=None,
                         metavar="CKPT",
                         help="Path to baseline checkpoint (interactive selection if omitted)")
@@ -497,14 +483,9 @@ def main():
                         help="clear=each question independent (default); multi=rolling history")
     args = parser.parse_args()
 
-    # ── Resolve paths: --drive-dir sets both dirs if not individually overridden ─
-    if args.drive_dir:
-        drive = Path(args.drive_dir)
-        ckpt_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else drive / "checkpoints"
-        art_dir  = Path(args.artifact_dir)   if args.artifact_dir   else drive / "artifacts"
-    else:
-        ckpt_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else default_ckpt_dir
-        art_dir  = Path(args.artifact_dir)   if args.artifact_dir   else default_art_dir
+    # ── Resolve paths ─────────────────────────────────────────────────────────
+    ckpt_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else default_ckpt_dir
+    art_dir  = Path(args.artifact_dir)   if args.artifact_dir   else default_art_dir
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

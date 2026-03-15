@@ -395,7 +395,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     }
 
     # Prefer last checkpoint (has most recent epoch) over best checkpoint
-    # to avoid silently discarding epochs on Colab disconnect (QA2-M1).
+    # to avoid silently discarding epochs on an unexpected disconnect (QA2-M1).
     resume_path = last_ckpt_path if os.path.exists(last_ckpt_path) else (
         best_ckpt_path if os.path.exists(best_ckpt_path) else None
     )
@@ -425,7 +425,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     # ── 6b. torch.compile — JIT-compile the model after weights are loaded ────
     # Compiling AFTER checkpoint load avoids state_dict key mismatches that
     # can occur if the model is compiled before load_state_dict in some
-    # PyTorch versions. Only enabled on CUDA (A100); MPS/CPU gain little.
+    # PyTorch versions. Only enabled on CUDA; MPS/CPU gain little.
     # Skipped on Windows: torch.compile's default inductor backend requires
     # Triton, which has no Windows support (fails on first forward call, not
     # at compile time, so a try/except around compile() is not sufficient).
@@ -578,7 +578,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
                     os.replace(tmp_last, last_ckpt_path)
                     break
 
-        # 7g2. Save last-epoch checkpoint (for Colab resume — prefers this over best).
+        # 7g2. Save last-epoch checkpoint (resume-friendly — prefers this over best).
         last_ckpt_data = {
             "epoch": epoch,
             "global_step": global_step,
@@ -637,7 +637,7 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
         script_name: Used for the run log filename (e.g. "train_mini").
 
     CLI args:
-        --mode full    Full A100 training run with all hardware optimisations (default).
+        --mode full    Full training run (default).
         --mode sample  Quick smoke test: 10K pairs, 2 epochs. Verifies the full code
                        path (both models, checkpointing, TensorBoard) in < 5 minutes.
     """
@@ -661,11 +661,7 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
     # ── Build active config — start from provided cfg or global CONFIG ────────
     active_cfg = dict(cfg if cfg is not None else CONFIG)
 
-    if args.mode == "full":
-        # Apply A100 data-loading override only — batch size stays at 256×2=512.
-        from config import get_a100_overrides
-        active_cfg.update(get_a100_overrides())
-    elif args.mode == "sample":
+    if args.mode == "sample":
         # Smoke test: run the complete code path (both models, checkpoints,
         # TensorBoard, validation) on a tiny subset. Must finish in < 5 min.
         active_cfg.update({
@@ -691,7 +687,7 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
         print("  SAMPLE MODE  — smoke test (10 K pairs, 2 epochs)")
         print("  Exercises the full code path: both models, checkpoints, TensorBoard")
     else:
-        print("  FULL MODE  — batch=256×2=512 effective, ReduceLROnPlateau")
+        print("  FULL MODE  — batch=256×2=512 effective  |  RTX 3080 12 GB")
     print(f"  Device  : {device}  ({gpu_name})")
     print(f"  Batch   : {active_cfg['batch_size']} × {active_cfg['grad_accum_steps']} accum "
           f"= {eff_batch} effective")

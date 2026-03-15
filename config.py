@@ -5,7 +5,7 @@ Every other file in new/ imports from here. No magic numbers anywhere else.
 
 Implementation notes:
 - CONFIG is a plain dict (not a dataclass) for easy JSON serialisation
-  and Colab cell override via CONFIG.update({...}).
+  and per-script override via CONFIG.update({...}).
 - All paths are computed relative to this file's location (new/) so the
   code works correctly regardless of which directory you run from —
   project root, new/, or any other working directory.
@@ -103,9 +103,8 @@ _LR_SCHEDULER = {
 
 # ── Loss ──────────────────────────────────────────────────────────────────────
 # Label smoothing OFF (0.0) — keeping the original RTX 3090 setting.
-# Smoothing is confounded with TF schedule changes in the A100 run; its effect
-# cannot be isolated. Test as a separate ablation after establishing the TF
-# schedule baseline.
+# Smoothing is confounded with TF schedule changes; its effect cannot be
+# isolated. Treat as a separate ablation after establishing the TF schedule baseline.
 _LOSS = {
     "label_smoothing":       0.0,
 }
@@ -116,7 +115,7 @@ _DATA = {
     "max_ctx_turns":         8,    # max dialogue turns retained in context
     "max_resp_tokens":       40,   # max response tokens (excl. <sos>/<eos>);
                                    # padded length = 42 (includes <sos> + <eos>)
-    "num_workers":           0,    # DataLoader workers; Colab can override to 4
+    "num_workers":           4,    # DataLoader workers (set to 0 to disable multiprocessing)
 }
 
 # ── Path root (always resolves to the new/ directory, wherever you run from) ──
@@ -171,20 +170,16 @@ def set_seed(seed: int = 42) -> None:
     Must be called at the top of train.py main() and evaluate.py main()
     to ensure results are reproducible across runs.
 
-    A100 branch — hardware-specific settings applied when CUDA is available:
+    CUDA hardware settings (applied when CUDA is available):
       - cudnn.benchmark = True:  auto-tunes cuDNN kernel selection on the first
-            batch and caches the fastest algorithm. Since our padded input shapes
-            are fixed epoch-to-epoch, this gives a persistent speedup at zero cost.
-      - cudnn.deterministic = False:  allows non-deterministic (but faster) cuDNN
-            algorithms. The A100 branch prioritises throughput over bit-exact
-            reproducibility; results remain statistically reproducible via the seed.
-      - allow_tf32 = True:  enables TF32 (10-bit mantissa) on A100 Tensor Cores
-            for float32 matmul and cuDNN ops, delivering ~8× throughput vs standard
-            FP32 with negligible accuracy impact. The forward pass already uses bf16
-            AMP; TF32 primarily accelerates the optimizer step and FP32 fallbacks.
+            batch; gives a persistent speedup since our padded input shapes are
+            fixed epoch-to-epoch.
+      - cudnn.deterministic = False:  allows faster non-deterministic cuDNN
+            algorithms; results remain statistically reproducible via the seed.
+      - allow_tf32 = True:  enables TF32 on Ampere+ Tensor Cores (RTX 3080,
+            RTX 3090, A100, etc.) for float32 matmul and cuDNN ops.
 
-    On non-CUDA hardware (MPS / CPU), full determinism is preserved for
-    reproducible local development and debugging.
+    On non-CUDA hardware (MPS / CPU), full determinism is preserved.
 
     Note: DataLoader worker seeds are controlled separately via
     ``worker_init_fn`` in dataset.py when ``num_workers > 0``.
@@ -197,10 +192,10 @@ def set_seed(seed: int = 42) -> None:
     _torch.manual_seed(seed)
     _torch.cuda.manual_seed_all(seed)
     if _torch.cuda.is_available():
-        # A100: speed over bit-exact reproducibility.
+        # Speed over bit-exact reproducibility.
         _torch.backends.cudnn.deterministic = False
         _torch.backends.cudnn.benchmark = True
-        # TF32 Tensor Core acceleration (A100 / Ampere+).
+        # TF32 Tensor Core acceleration (Ampere+ GPUs: RTX 3080, A100, etc.).
         _torch.backends.cuda.matmul.allow_tf32 = True
         _torch.backends.cudnn.allow_tf32 = True
     else:
@@ -208,24 +203,6 @@ def set_seed(seed: int = 42) -> None:
         _torch.backends.cudnn.deterministic = True
         _torch.backends.cudnn.benchmark = False
 
-
-def get_a100_overrides() -> dict:
-    """Config overrides for A100 80GB GPU full training.
-
-    IMPORTANT: batch_size and grad_accum_steps are intentionally NOT changed.
-    Empirical evidence from runs 1 and 2:
-      - RTX 3090, batch=512 (256×2):  86,200 optimizer steps → val_loss 5.997 ✓
-      - A100,     batch=4096 (4096×1): 5,380 optimizer steps → val_loss 6.570 ✗
-    The 16× reduction in optimizer steps crippled convergence regardless of GPU
-    throughput gains. Batch 512 stays.  The only A100 override is data loading.
-
-    num_workers=4:
-        Handles collation and padding asynchronously, keeping the GPU fed.
-        4 is the sweet spot for Colab A100 (~12 vCPUs).
-    """
-    return {
-        "num_workers": 4,
-    }
 
 def get_tf_ratio(epoch: int, config: dict) -> float:
     """Return the teacher-forcing ratio for a given 1-indexed epoch.
