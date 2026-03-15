@@ -1,27 +1,16 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Requirements — NLP Seq2Seq Chatbot (RTX 3080 12 GB)
 # Ubuntu Dialogue Corpus · SentencePiece BPE · Bidirectional LSTM
-# ──────────────────────────────────────────────────────────────────────────────
 #
-# Install PyTorch first (before this file), matching your CUDA version:
+# Target hardware: NVIDIA GeForce RTX 3080 12 GB (Ampere, CUDA 12.4)
 #
-#   CUDA 12.4 (recommended — newer drivers):
-#     pip install torch --index-url https://download.pytorch.org/whl/cu124
-#
-#   CUDA 11.8 (older drivers):
-#     pip install torch --index-url https://download.pytorch.org/whl/cu118
-#
-#   CPU only / Apple Silicon:
-#     pip install torch
-#
-#   Check your CUDA version: nvidia-smi (top-right corner)
-#   Full selector: https://pytorch.org/get-started/locally/
-#
-#   NOTE: bf16 mixed precision requires Ampere+ (RTX 3080/3090, A100).
-#         On older cards the code falls back to fp32 automatically.
+# Install with:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+#   pip install -r requirements.txt
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Core deep learning ────────────────────────────────────────────────────────
+--extra-index-url https://download.pytorch.org/whl/cu124
 torch>=2.1.0                # bf16 AMP, torch.compile, Ampere TF32 support
 numpy>=1.24.0
 

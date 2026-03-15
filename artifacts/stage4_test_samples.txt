@@ -1,0 +1,803 @@
+Stage 4 — TEST samples  (200 of 47,377 pairs, seed=42)
+======================================================================
+
+── Pair 001 ──────────────────────────────────────────────────
+CTX : what is a good undelete tool for ubuntu basically just looking to recover some files on a formatted drive hehe yeah there must be a generic undelete application somewhere that attempts to recover lost files . i am sure i have used one but i cant remember what it was looks like its been formatted to fat32 __eot__ what __eot__ the drive i am trying to recover is fat32
+RESP: you should be able to recover files then
+
+── Pair 002 ──────────────────────────────────────────────────
+CTX : that is probably so . do this sudo apt-get update sudo apt-get install pastebinit sudo apt-get update pastebinit apt-cache policy pastebinit if things go well you will end up with two internet addresses please post those here __eot__ will do thanks any ideas __eot__ please manually post the output of these commands to a pastebin sudo apt-get update sudo apt-get --assume-no install apt-cache policy which versions did you recently upgrade from and to __eot__ i installed ubuntu 11.04 - the natty narwhal . but i ran apt-get upgrade earlier and not ti sure if that would upgrade to latest __eot__ you said this initially though triyo i did an upgrade to latest ubuntu dist ver __eot__ my apologies . i foolishly thought that apt-get upgrade would do just that . apt-cache policy __url__ __eot__ no worries i was just asking for clarification so you did not recently install ubuntu 11.04 but a while ago right ok so we are still missing the output of sudo apt-get --assume-no install' right __eot__ that is correct . reason e command line option --assume-no is not understood version apt 0.8.13.2ubuntu4.6 for amd64 compiled on jun 15 2012 14 55 09
+RESP: this will be why i have a newer version here . please do this instead sudo apt-get -s install sudo ppa-purge ppa globalmenu-team ppa you may need to sudo apt-get install ppa-purge' beforehand
+
+── Pair 003 ──────────────────────────────────────────────────
+CTX : hi i have an issue with 12.04 and 12.10 on my laptop concerning java and my device drivers i was wondering maybe someone else encountered the same when running a very simple jframe it makes the entire system lag only if i have proprietary drivers installed . i have to install these drivers otherwise my brightness keys will not work . the laptop is a hp probook 6570b and has an amd gpu using the 12.8 12.9beta drivers both give issues if someone could help me or knows how to get the brightness keys to work without proprietary drivers i would be very happy d do you know how to get the brightness keys the indicator pops up and the keys themselves work but the brightness just stay the same . __eot__ have you tried this __url__ oops sorry .
+RESP: thanks i will try this . no idea how to do it but i will find it
+
+── Pair 004 ──────────────────────────────────────────────────
+CTX : my xchat network list is empty any help please join backtrack __eot__ .xchat2 on your home folder delete .xchat2 directory completely . run xchat again . everything should reset to defaults . __eot__ i do not see the folder in home folder i mean xchat2 folder __eot__ give me the output of the ls command in your home dir __eot__ desktop downloads music public videos
+RESP: um . pastebin me the output of ls -a
+
+── Pair 005 ──────────────────────────────────────────────────
+CTX : how can i create a system user account in ubuntu __eot__ useradd is the standard linux way i use useradd . but adduser exists too . i have never used adduser but then again most of my systems are single-user . __eot__ i do not suppose you will know what the default password is for the new user
+RESP: there is no password by default i believe .
+
+── Pair 006 ──────────────────────────────────────────────────
+CTX : how do i get my network card to boot up at 1000mb s it always boots to 100 and on my network that kick after a few minutes . ge yes it is on a gigabit switch but it always starts up at 100mb and i have to manually switch it to gigabit .
+RESP: did you make the patch cord
+
+── Pair 007 ──────────────────────────────────────────────────
+CTX : is __url__ down when i try __url__ it says it's just you . __url__ is up.' but it is really down for me
+RESP: it is happening for other people as well . i am one of them
+
+── Pair 008 ──────────────────────────────────────────────────
+CTX : english to english __eot__ i . what __eot__ or equivalent one __eot__ open ubuntu software center and search dictionary __eot__ dont u know anyone of them __eot__ it is not so much that i do not know of any but i am having a slight problem with understanding what exactly it is you are looking for . __eot__ i get an during update the dictionary see the error __url__ see the error __url__ __eot__ do not repeat yourself
+RESP: am waiting for ur recommendation see the error __url__ help me
+
+── Pair 009 ──────────────────────────────────────────────────
+CTX : i wont ever run a .10 distribution again too many headaches __eot__ your laptop supports wifi chipsets from multiple hardware vendors . without having you run lspci -nnvv and telling us the pci id of your wifi adapter it is impossible for us to know which driver to tell you to install . __eot__ bcm4311 is that what u were asking for __eot__ bcm4311 is a broadcomm chipset . no wonder an unmaintained intel wireless driver from 2008 does not work . __eot__ oh those one sec 14e4 4311 __eot__ __url__ lsmod grep wl __eot__ thats exactly what lspci says about my netwrok controller __eot__ i know . so . you need to try to blacklist the wl driver and use b43 . you can blacklist it in __path__ -- just add blacklist wl' to the top of the file
+RESP: i was reading the sudo install firmware
+
+── Pair 010 ──────────────────────────────────────────────────
+CTX : - i will try the boot repair tool . thank you . - no os . gonna use live ubuntu . __eot__ so what exactly are you expectng these boot-repair tools to do __eot__ - from ubuntu live i was hoping it would allow me to reinstall windows . - it would repair or recreate the windows mbr __eot__ you might be able to make a sd card or usb you can boot install from if you have a windows disk iso . you just said you had no os . so if the mbr is fixed theres no os to boot . __eot__ - i do have a windows disk . - or a windows usb . - i used gparted on unbuntu live to destroy all partitions . do i create a new partition now on gparted __eot__ wundows installer can partition __eot__ - when i try to use windows installer the syslinux mbr does not recognize it . __eot__ you need to have the windows setup disk reinstall the windows bootloader to the mbr
+RESP: - the syslinux mbr will not let me how do i do that
+
+── Pair 011 ──────────────────────────────────────────────────
+CTX : command a is a symbolic link to b but run a and b gives different result . why __eot__ command can check how it was called __eot__ can a symbolic link have parameters like on windows __eot__ write a small shell script if you want that __eot__ i see . thank you . i still have problem . although b can check that user called it through a but it will not perform the task that it can not do right __eot__ you are going to have to be more specific . i am not sure what you are trying to accomplish __eot__ what i am talking about is the command whatis and apropos
+RESP: and what are you trying to accomplish
+
+── Pair 012 ──────────────────────────────────────────────────
+CTX : hello - i installed openconnect in order to connect to a cisco vpn service but when i try to create a new vpn item it only gives me pptp . i am running 12.04 i should add in the network manager2 i should add in the network manager' info openconnect __eot__ have you also installed the network-manager-openconnect-gnome one installs the vpn capabilities itself the -gnome one installs the gui to configure it glad it helped then . been there done that with other vpn software plugins __eot__ - next issue - when i select the entry i created i am not being asked for the user name and password - using rsa token __eot__ i am not familiar with the prompts or credentials that openconnect requires . are there additional tabs or pop-ups in the gui __eot__ only a tab for ip addressing the log shows that i am connecting to the right url . the logs show please enter your username and password.' but it never gives me any prompt to enter that information .
+RESP: glenuk - i am very sorry . i need to run for a while
+
+── Pair 013 ──────────────────────────────────────────────────
+CTX : ide no . sata perhaps . __eot__ ide i tried to do something with testdisk and it has become troublesome . i had to remove it physically to let livecd boot up . what is a hdd usb enclosure please
+RESP: a box you put a hd in to turn it into a usb hd .
+
+── Pair 014 ──────────────────────────────────────────────────
+CTX : well lvm should be easy to resize right i dont want any swap its eating 8gb of my disk and its only 6gb big 60gb what so how do i delete the partition . __path__ none swap sw 0 0 what is the use for lvm then __eot__ it can work like drive extender on windows why raid at all it is not as good as it sounds everything has their own ideal place . in my personal scenario i use rsync and write scripts to meet my needs . it is . but there may be better solutions .
+RESP: that would be the same as raid 0
+
+── Pair 015 ──────────────────────────────────────────────────
+CTX : would someone be nice to me and give me the output of ps aux grep chrome' with chrome running while playing a flash video or game i am developing a script and need to match chrome with it is flash plugin but unfortunately i am on debian probably because you do not have chrome running a the moment of running the command it is important that you watch any flash video or game so the flashplugin is loaded __eot__ chrome was open a youtube video was open i dont have html5 on too __eot__ you can try justin.tv or __url__ can you try ps aux grep flash' __eot__ flash gives roughly same result but doing grep chrome uppercase gives a large output lemme pastebin it __eot__ thank you
+RESP: __url__ not sure how helpful that will be
+
+── Pair 016 ──────────────────────────────────────────────────
+CTX : please answer my questions . __eot__ i tried every newest driver its nothing to do with it __eot__ on which ubuntu exactly __eot__ i have tearing on 1 ubuntu 2d 2 gnome shell 3 mate 4 cinammon 5 xubuntu xfce 6 lubuntu __eot__ whats the output of lsb_release -sc then __eot__ lol ok guys i get it must find the solution by my own . __eot__ if you are unwilling to answer basic questions yes . then you have to find the answer on your own . __eot__ on the section monitor i have horizsync 30.0 - 81.0 and vertsync 56.0 - 61.0 i guess something is wrong
+RESP: answer our questions please .
+
+── Pair 017 ──────────────────────────────────────────────────
+CTX : if i rember right its under system settings printer something cups . sorry i cant rember how exactly . i switched to kde __eot__ i see that option . my question was regarding the device.there are 3 options lpt 1 enter uri and network printer __eot__ __url__ . take a look at that if you dont see your printer there i would think that your computer hasnt seen the usb device . first i would try to unplug the usb cable and plug it back in after 30sec __eot__ in my case the printer needs to be installed as a raw device printer . __eot__ i knwo there is a cli command to ask your computer if it sees it but i dont rember what it is black and white or color __eot__ there are 2 printers . one is a dot matrix and another one is a pos receipt printer __eot__ oh lol . ya im about to have to go throu that one my self __eot__ in system settings a single click on a icon opens it.i want to change it to double click . how can i do that
+RESP: if i rember right its under desktop settings . i think you can right click the desktop and get to it there
+
+── Pair 018 ──────────────────────────────────────────────────
+CTX : it is guest6188 . i am back . __eot__ sorry have you tried reinstalling yet __eot__ will try that now using purge method again __eot__ just try apt-get install libreoffice
+RESP: telling me to fix dependencies again . i cannot find the link now but it looks very similar so i would presume so yeah .
+
+── Pair 019 ──────────────────────────────────────────────────
+CTX : may i suggest something you log in with you user and it gives nothing __eot__ my ftp client __eot__ run it as sudo . so . have you tried to run it as a sudo __eot__ can you help or not it is set with yes . __eot__ is listen_ipv4 yes too please try this __path__ start __eot__ what is that __eot__ do not do that i think l3mce has a better suggestion . i am leaving now . my last instructions are enable vsftpd in xinetd -- nano __path__ and changing disabled no and then running xinetd -- __path__ start __eot__ ok but it has no bussiness with xinetd
+RESP: i need to leave now . i am sorry if i could not help you .
+
+── Pair 020 ──────────────────────────────────────────────────
+CTX : you are the client yes __eot__ yes . what i do not understand is how i can ssh other machines but not this one
+RESP: are you sure the host creditials are correct
+
+── Pair 021 ──────────────────────────────────────────────────
+CTX : ssh -x to the host then firefox unless you want to open firefox locally are you ssh'd from a windows box to a linux box __eot__ no . linux to linux __eot__ do you have x running on the machine you are using to ssh to the host on to forward x applications via ssh you need to have a local x instance running then you can ssh -x host once in you can launch any x based applicaiton on the host and it will forward it to the local machine .
+RESP: i have x on running machine
+
+── Pair 022 ──────────────────────────────────────────────────
+CTX : is there a linux channel other than linux struggling to get any help . __eot__ you can search with alis see msg alis help list . what do you need help with specifically
+RESP: cu command gps help . i am struggling to understand something
+
+── Pair 023 ──────────────────────────────────────────────────
+CTX : can someone help with an sftp problem i created a new user group and user set that to be chrootdirectory data00 which has some symlinks to other folders . i want the user to have read only access to that but when i connect as that user via sftp i can see my whole folder structure but not go into any folders __eot__ if the symlinks on the server point outside the chroot then you will not have access because the chroot blocks all access except within the chroot directory tree __eot__ very good to know thanks .
+RESP: patience onlymaj if you can put the files directories you want that user to access inside the data00 directory hierarchy and linking from the original locations to the location under data00 that may solve the problem
+
+── Pair 024 ──────────────────────────────────────────────────
+CTX : i have a 12.04 ubuntu usb stick is there an option for me to install via tty0 instead of tty7 i.e . no ui no gui somehow the video driver will fail at installation but once it is installed it is ok __eot__ can you use ctrl alt f1
+RESP: this is a known issue on dell xps 8500 but f7 keeps running then video driver will kill the install need somehow disable the video driver fully
+
+── Pair 025 ──────────────────────────────────────────────────
+CTX : newbie here . how can i remove the previously configured settings of an app for example i want to remove the past manual configurations that i did to opera browser .
+RESP: find that apps . folder in your home folder hidden settings folder
+
+── Pair 026 ──────────────────────────────────────────────────
+CTX : true story badthing richard stallman is following me on identi.ca
+RESP: now dent something about open source' and linux'
+
+── Pair 027 ──────────────────────────────────────────────────
+CTX : someone can help -me with a cron job i cant make it works 00 15 vitor __path__ this is my cron job and it dont works
+RESP: what is exec_backup a script
+
+── Pair 028 ──────────────────────────────────────────────────
+CTX : is there a easy way to install xampp on ubuntu
+RESP: download the tar.gz file and extract it it would be best to download and compile .
+
+── Pair 029 ──────────────────────────────────────────────────
+CTX : how do i enable the ssh port from the terminal am trying to connect and all i get is remote host closed connection . __eot__ by starting the ssh server service . so you ran that command on the computer you want to connect to or did you run it on the computer you are trying to connect from
+RESP: am trying to connect to a another computer running on linux with ssh installed.just doing an experiment
+
+── Pair 030 ──────────────────────────────────────────────────
+CTX : hi . i would like a way to run an application as a user every time my machine starts up . it is a terminal application . i would normally do something with init.d but i am not sure how to do the run as a user' part . __eot__ if you have to pass a lot of flags my fave application is terminator . you can run a commmand like terminator -x irssi --connect __url__ you put that in a menu editor like alacarte and now you have a maneu entry in the menu . you can also then make it a booting command . terminator is awesome . __eot__ fwiw . it is __url__
+RESP: never mind terminator is gui .
+
+── Pair 031 ──────────────────────────────────────────────────
+CTX : hit alt f2 mount the disk to mnt chroot mnt __path__
+RESP: thats not sufficient . you will have no dev sys proc in your chroot environment . it will not work correctly .
+
+── Pair 032 ──────────────────────────────────────────────────
+CTX : tried that as well . issue follows the new user account . yup . would you mind reading this thread it details my issue exactly . __url__ __eot__ where exactly is libbib.so could be the binary is looking for it in the current directory where it was called from __eot__ it is in __path__ - and when i run acroread and look at lsof and grep for acro it shows libbib in use . __eot__ you could alter the library search path to include __path__ perhaps . __eot__ can you expand on that not sure how that works . __eot__ look in __path__ __eot__ do you have an example of how to add it i looked at all three .conf files in that folder and it does not make a lot of sense . __eot__ each file just contains a path .
+RESP: too simple . p do i need to restart any services
+
+── Pair 033 ──────────────────────────────────────────────────
+CTX : cat __path__ quote to me the last line __eot__ nameserver __ip__ __eot__ edit __path__ gksudo gedit __path__ and change __ip__ to __ip__ so that you only have one nameserver line and it says nameserver __ip__ __eot__ i have two lines one says __ip__ and the other one says __ip__ yes . __eot__ remove the one that says __ip__ so that you only have one nameserver line that says nameserver __ip__ sorry i told you wrong the first time __eot__ yes __eot__ is it working now __eot__ no
+RESP: ls __path__ does that file exist
+
+── Pair 034 ──────────────────────────────────────────────────
+CTX : then it is of no use i need to run teamviewer7 on startup as root
+RESP: - create startup string in rc.local
+
+── Pair 035 ──────────────────────────────────────────────────
+CTX : can someone here help me with selecting some memory for my laptop i have a toshiba a505 s6980
+RESP: __url__ the link i sent you is for a 4 gig pair
+
+── Pair 036 ──────────────────────────────────────────────────
+CTX : hey guys question i have a network driver realtek 8139 __path__ which contains also a wireless . i am not managing to get the driver working . any one knows a fix for this __eot__ are you sure what does iwconfig say lspci grep ireless tell us what that says . __eot__ nothing
+RESP: is this a laptop or desktop
+
+── Pair 037 ──────────────────────────────────────────────────
+CTX : is there a program that will act like a kvm over ip for a headless 12.04 box i want to be able to actually see the same thing as the console
+RESP: i am not sure if there is some way to do it with vnc why do you need to see the actual console
+
+── Pair 038 ──────────────────────────────────────────────────
+CTX : what cpu __path__ card have you tried alternate cd __eot__ 2 5 ghz intel core i5 4 gb ram intel hd graphics 4000 384 mb __eot__ are you using usbstick or cd did you md5sum ect . run the diskcheck option ect . __eot__ usbstick and the md5sum is correct __eot__ how did you make the usbstick
+RESP: using the official ubuntu tutorial on mac via terminal
+
+── Pair 039 ──────────────────────────────────────────────────
+CTX : can ubuntu support memory hotplug under vmware esxi __eot__ i think i recall reading that it can but do not take my word for that .
+RESP: i just tried with 10.04 although esx gave it more memory it is not recognized until reboot
+
+── Pair 040 ──────────────────────────────────────────────────
+CTX : anyone here familiar with the default python search paths on ubuntu __eot__ please just ask your real question can you show on a pastebin perhaps by doing pythonpath whatever' python -c import sys print sys.path' __eot__ one sec __eot__ what ubuntu version __eot__ __url__ __eot__ what ubuntu version what is the output of which python __eot__ which python gives __path__ which is a symlink to python2.7 __eot__ it is weird that __path__ shows up in there . do yo uknow what that is about
+RESP: well that first thing looks like it is something from pip
+
+── Pair 041 ──────────────────────────────────────────────────
+CTX : ubuntu 12.04 is getting stuck on boot saying waiting 60 more seconds for network configuration' why would this be __eot__ cannot reach dhcp server is the cable plugged in etc . do you have a custom __path__ file or something __eot__ i do yes here it is __url__ __eot__ ok they are all set by static . not sure then tbh __eot__ ok thanks it does it on both my standard 12.04 server installs __eot__ has something changed thats stopping both notwork cards being identified etc .
+RESP: what do you mean identified
+
+── Pair 042 ──────────────────────────────────────────────────
+CTX : what do you even want to accomplish
+RESP: my wants to test vmware esxi
+
+── Pair 043 ──────────────────────────────────────────────────
+CTX : i am using edubuntu and there is a problem with ltsp booting i get the message pxe32 tftp open timeout . what is wrong __eot__ is the tftp server running the ip looks dodgy __eot__ it should be set in etc __eot__ probably should be a private ip like 192 . . . or 10 . something it is probably in __path__ or something similar
+RESP: 13761 ss 0 00 __path__ --listen --user tftp --address __ip__ --secure __path__ thanks to you i reset it . testing . again
+
+── Pair 044 ──────────────────────────────────────────────────
+CTX : i am trying to install texlive to write a report for tomorrow but i get a rather cryptic e unable to correct problems you have held broken packages' __eot__ sudo apt-get -f install __eot__ i did along with apt-get clean apt-get update apt-get upgrade'. specifically apt-get install -f' just informs me of some packages which are installed but no longer needed it does not seem to do anything
+RESP: you can clean up with sudo apt-get --purge autoremove
+
+── Pair 045 ──────────────────────────────────────────────────
+CTX : what is it mean when a terminal just has
+RESP: on boot perhaps that is grub-rescue does ctrl c' get you out of it
+
+── Pair 046 ──────────────────────────────────────────────────
+CTX : does someone know if theres issues with compatibility on using a e350 apu with nvidia gt520 pcie card on hdmi i cant make it work any way __eot__ you mean using the onboard and nvidia video at the same time i would probably just disable onboard in bios unless youre trying to do some multi monitor setup __eot__ it is disabled in the bios __eot__ are you using the nvidia closed source drivers if you lsmod grep nv what is the result
+RESP: it says nvidia 11257276 26
+
+── Pair 047 ──────────────────────────────────────────────────
+CTX : hi all am i allowed to kill this proccess on ubuntu server usr __path__ -u bind' its got something to do with dns but i have not touched that . __eot__ you are running a dns server __eot__ so if i kill that proccess i will not be able to access my server anymore __eot__ you will not be able to access any dns that the named process on your machine is serving
+RESP: but if i access my server through ip only it should not matter right thanks for help
+
+── Pair 048 ──────────────────────────────────────────────────
+CTX : you could save the timestamp in a variable and touch the file post move __eot__ yeh there is once i need to touch -t every folder and sub folder takes me 1 hour s __eot__ now i think about it the timestamp will not affect the md5 anyway since it is a property of the file system not the datafile __eot__ maybe have not done that yet though __eot__ just researching i could be talking balls __eot__ yeh thanks anyway i will do more search .guess only way for it is either copy or as you mention mv and save the timestamp into a tmp and rewrite it . __eot__ i would do rsync personally . the whole touch etc would be much more time scripting expensive than rync __eot__ yeh i did that once .anyhow gtg thanks a lot for the help -
+RESP: __url__ they back up what i say i think it is the contents of the file not the timestamp that is comupted with an md5 bye
+
+── Pair 049 ──────────────────────────────────────────────────
+CTX : i am using vtr thats 1000 mb s .i really don'y know how it arrived at that value though yes . a modem provided by isp.that modem allows upto 4 pcs to be connected using wi-fi and 4 sockets for ethernet cable out nat no was that for me __eot__ the dyndns will still work on the local lan . the address is the only thing that will go over the internet if you are getting public ips i would make sure you are firewalled btw __eot__ you mean if i use dyn-dns then the client pcs will resolve the server ip address through internet only once and then all the communication will happpen locally and not over internet __eot__ yeah __eot__ dyndns is a paid service . is there a free solution for my requirement so that means that the users willl access the no-ip hostname . one more question.iif my machine's ip changes then how long will it take for no-ip hostname to start pointing to new ip __eot__ __url__ __eot__ if the internet connectivity is lost the my client pcs will not be able to connect to ubuntu server using hostname right if i use no-ip and if the internet connectivity is lost then my client pcs will not be able to connect to ubuntu server using hostname . is that right __eot__ no the hostname should update that is the whole point
+RESP: is there a way i can take internet out of the equation and just go via a local router internet connectvity is not very stable here
+
+── Pair 050 ──────────────────────────────────────────────────
+CTX : hello did you see my description of my problem
+RESP: are you just looking for the sudo commands to do a task that you cant do through the gui
+
+── Pair 051 ──────────────────────────────────────────────────
+CTX : hello i want to use ssh to connect to my computer but it tell me that how can i solve this problem
+RESP: can you ping the server
+
+── Pair 052 ──────────────────────────────────────────────────
+CTX : guys any idea how to use aircrack to gain access to wifi any idea how to use aircrack to gain access to wifi guy anyone knows how to use airmon
+RESP: what exactly are you trying
+
+── Pair 053 ──────────────────────────────────────────────────
+CTX : i have been having trouble with a new 3tb harddrive and a fresh ubuntu install . i install as gpt and the install looks ok . but then get grub error out of disk' after reboot . i have an october 2011 pc with updated bios and i _do_ see the 3tb . google searches have not been to helpful so far . has anyone seen grub trouble when installing on 3tb harddrives
+RESP: have you tried installing grub again and updating it sudo grub-install sudo update-grub
+
+── Pair 054 ──────────────────────────────────────────────────
+CTX : when i search using grep with this command grep -r .com' whateverdirectory' it ignores the .' and just searches for com'. is there a way to get the period included in the search
+RESP: escape it with a backslash
+
+── Pair 055 ──────────────────────────────────────────────────
+CTX : test it further - try to install windows or some other os __eot__ do you think it may be an electrical problem __eot__ i think those apadters are unreliable adapters __eot__ i guess im starting to have that idea too __eot__ you could try a pci controller __eot__ would i get the same speed as with the ide adapter __eot__ i think you would get a lot better performance as long as the adapter is supported by ubuntu . but youre better off with a new motherboard ssd drives are better off with more modern equipment __eot__ ssd drives consume less than ide . im trying to connect a sata ssd to an ide motherboard . aint the sata ssd receiving more volts than required ssd drives consume less than ide . im trying to connect a sata ssd to an ide motherboard . aint the sata ssd receiving more volts than required
+RESP: ssd use the same voltages as any other drive they just consume less
+
+── Pair 056 ──────────────────────────────────────────────────
+CTX : is it installed a virtual machine __eot__ yes __eot__ most likely an issue with unity and the virtualized video you can try using unity-2d __eot__ unity-2d i am using this in vmware player i dont have unity anything __eot__ are you running a full desktop install __eot__ yes __eot__ then you are using unity that is the default desktop in ubuntu sudo apt-get install unity-2d then logout and before loging back in select unity-2d as your session __eot__ thanks
+RESP: actually unity-2d should be installed by default so just log out and select it
+
+── Pair 057 ──────────────────────────────────────────────────
+CTX : are all video card makers less than supportive for linux __eot__ what card do you have __eot__ wols_ mhart_ in all reality . which is easiest for my customers to use unity . i need a good recommendation for them
+RESP: nvidia or intel are best
+
+── Pair 058 ──────────────────────────────────────────────────
+CTX : ping -c3 __url__ gksudo gedit __path__ so that you have only one nameserver line nameserver __ip__ __eot__ done it shows __path__ sure __eot__ sure is . __eot__ same message again and w4sp after that it displays ping __ip__ __ip__ 56 84 bytes of data __eot__ then it is pinging . so there you go . __eot__ is it done __eot__ host __url__ what does that say __eot__ connection timed out no servers could be reached
+RESP: what nameserver ip do you have in __path__ cat __path__ tell us what address follows the line starting with nameserver can you ping __ip__ ping -c3 __ip__
+
+── Pair 059 ──────────────────────────────────────────────────
+CTX : what release of ubuntu __eot__ ubuntu 12.04.1
+RESP: you havent ran nautilus as root have you in the past you could check who owns the files __path__ since thats where they seem to be saved here . but i am on 12.10
+
+── Pair 060 ──────────────────────────────────────────────────
+CTX : how do i move recursively files from a path a to a path b while preserving the file mode and ownership of files and directories seen in b the target directory does mv try to preserve the file modes and permissions from the source directory __eot__ i use rsync for things like that but it is takes a bit to learn rync will do an intelligent recursive copy and if you do it again it will only copy what changed __eot__ so yeah man rsync says that -p preserve permissions' but is it permissions of the target or permissions of the source so that is not what i want . d __eot__ rsync -av source dest -a implies several other settings if you are trying to preserve the target permissions that is harder . usually you want to copy the source's permissions to the target .
+RESP: in my case i don't . hehe because the target permissions and ownership were set by fantastico already . trying to update a drupal installation that was done through fantastico
+
+── Pair 061 ──────────────────────────────────────────────────
+CTX : how do i know where the mbr is __eot__ what is the hd sda sdb what is the partition __eot__ sda is a 32gb ssd where i am going to install . it is also the location of the windows 7 loader . __eot__ put the bootloader in sda no partition number sda is the mbr hold on you have ubuntu split root in one hd and home in anaiother __eot__ i have put my on the ssd and home on a hdd . __eot__ the bootloader would go in sda then never put grub in a windows partition the mbr is always just those 3 letters no partition number . no problem i assuming this is not a uefi partitioning as well . __eot__ i am not really sure how i would check that . but i do not think that it is . __eot__ you could open a terminal and run sudo fdisk -lu and pastebin the text . here is a uefi wiki even better __url__
+RESP: here is the pastebin . __url__
+
+── Pair 062 ──────────────────────────────────────────────────
+CTX : guys i need some help i have two partitions mounted at for some reason but mount -l only shows one of them whereas gparted shows both as mounted thing is i made a backup of my root partition before i moved it __eot__ are you sure you have both mounted at root what is the output of sudo fdisk -l __eot__ fdisk -l shows all partitions but does not show where they are mounted at __eot__ how about the output of mount __eot__ mount -l only shows sdb5 as mounted and does not show sda5 at all __eot__ then it is highly likely that you only have sdb5 mounted so i do not think you do have 2 mounted at __eot__ how do i fix that __eot__ fix what i am not sure what the issue is ok i think what you need to do is edit your fstab file . normally at least but since this is root you may also need to change grub . hmm
+RESP: fstab shows the uuid of sda5 for
+
+── Pair 063 ──────────────────────────────────────────────────
+CTX : hi guys i got some problem compiling kernel my ubuntu wont start . could you give me a hand __eot__ what is your exact problem __eot__ hi __eot__ hm . what is your kernel cmd line looks like you are trying to wrongly mount a root fs __eot__ i did not edit it i installed kernel from .deb give me a sec i will check the line where should i look i am confused with grub2 __eot__ i have no idea tbh . i still do not use grub2 -.- __eot__ that is what is in my grub __url__ i am worried that i didnt include some drivers in my kernel __eot__ hm . it lists uuid b6848bab-9915-4199-8ed0-5245e7714d90 . does blkid list that too and will that be available during boot
+RESP: when i type blkid it gives noting i am on thinkpad laptop i got only one hdd
+
+── Pair 064 ──────────────────────────────────────────────────
+CTX : how did you copy edit my example to your system __eot__ sudo gedit __path__ __eot__ that should do it assuming you saved it __eot__ i mean the file doesnt exist right now __eot__ if you save it using gedit it should do __eot__ done now i will restart service __eot__ ok . good luck __eot__ mmm done aparently nothing happened
+RESP: how do you test it
+
+── Pair 065 ──────────────────────────────────────────────────
+CTX : hi all i have a problem with an init script . i have ubuntu server 12.04.1 configured to have in __path__ i commented the last line and replaced with exec __path__ --autologin ale tty6 . i then added to my profile in bash the famous if that checks if display is not defined and if i am in the tty6 via tty and then starts x with exec startx . i am _sure_ i go inside the correct if i touch some debug files around and they i have removed all login managers i have dpkg-reconfigure'd x11-common to let all users startx any suggestions thanks in advance __eot__ your message was truncated at debug files around and they .' __eot__ debug files around and they get created upon boot but i _always_ get an x error about the server already being active for display 0 . i have been looking at this for a couple of hours now i am testing with env to see if display was already set it's not i have checked all the possible getty programs and they all log me in successfully on tty6 and the if is _always_ executed but startx or xinit itself always error out __eot__ i suggest pastebinning the full script and your bash file __eot__ the problem is i have the script on a remote machine that i can atm access only via vnc and then putty from there so it would be hard for me to do __eot__ the machine does not have internet access
+RESP: it does not i am vnc-ing to a windows machine that acts as a router then ssh via putty from there
+
+── Pair 066 ──────────────────────────────────────────────────
+CTX : whenever i boot into ubuntu it brings up the loading screen with the dots but instead of giving me a login screen it sends me to tty1 . when i switch to tty7 it has no gui and the second last message is starting lightdm display manager' followed by ok . any idea how i can fix it __eot__ do you have xwindows installed __eot__ somewhat new to linux what do you mean i have not installed anything on top of in place of the default unity __eot__ xwindows is the gui as long as you did not install ubuntu server xwindows should be installed by default
+RESP: i did a standard install and it is been working fine until today
+
+── Pair 067 ──────────────────────────────────────────────────
+CTX : go to terminal and type aply -l to see that the kernel recognizes your hardware __eot__ u mean aplay need 2 install alsa-utils' __eot__ oh yes __eot__ aplay -l __eot__ ok so the kern sees the hdmi device . but you are saying it does not show up in sound settings __eot__ no in all settings sound output there is no hdmi only headphones speakers __eot__ type aplay -d plughw 0 0 __path__ it should come through your internal speakers . do that again with plughw 1 3 and it should go through the hdmi __eot__ i did that it works when i connected the cable the hdmi option appeared in the settings when removed it was gone i guess there is no problem then speaking of which i believe i have a video bug or smthg when playing vid's the image flickers every 3 4 seconds
+RESP: there is a known issue with hdmi video . when sound cuts out the video source does as well
+
+── Pair 068 ──────────────────────────────────────────────────
+CTX : i am trying to install ubuntu server 12.04 on my shiny new machine . it does not seem to find the hardware raid1 setup i have it only lists the usb stick as a disk i can install on __eot__ what raid controller is it exactly __eot__ intel esrt2 __eot__ that is no hardware raid afaik __eot__ built in to the hardware anyway __eot__ it is fakeraid as always
+RESP: as in has a bios like thingy where i did the raid1 setupd
+
+── Pair 069 ──────────────────────────────────────────────────
+CTX : does anyone have any good ways to reinstall the most recent version of a package from a repository __eot__ apt-get install --reinstall package
+RESP: i was testing a new version of evolution 3.4 on 12.04 and now need to reinstall the most recent version from the stable repositories . is there a way to calculate what those might be
+
+── Pair 070 ──────────────────────────────────────────────────
+CTX : you might need to install some -dev packages to get header files . __eot__ i am installing from arch -- i did that and nux still does not compile . i have resorted to pulling from the git repo's and they still have not worked . __eot__ the vm is sending the pings not receiving them the vm is a fresh 12.04.1 install __eot__ the vm part of the vm might be doing something . __eot__ i am using virtualbox for the vm there is an arp request but no response from the tap interface . __eot__ the packet is either being lost in the host os or the vm part of the vm . check vm settings for networking and you host os's networking and security settings . in there has to be the answers . else its with virtual drivers at which point i am out . __eot__ i can see via wireshark that there is a arp request . brctl says the tap interface is connected . but i dont get a response fro the arp request from the tap interface __eot__ tap what is the exact network setup this is in the details . brctl
+RESP: a virtual bridge acts like a network hub does not it
+
+── Pair 071 ──────────────────────────────────────────────────
+CTX : can someone help me i have this audio card inside an ubuntu 12.10 desktop . the audio does not work and on random boots when it does it only comes out the right stereo side - no this is not a simple is your audio mute' problem __url__ __eot__ access denied -- from your paste user is not allowed access to it __eot__ how would i make sure user can access it __eot__ that output was from what command __eot__ lspci -v i can run it again as super user __eot__ i am going to run it on this end let me see if user gets the same result __eot__ there is also this mess of my setup if you want it __url__ 80 power management version 1
+RESP: same response here nevermind my comment
+
+── Pair 072 ──────────────────────────────────────────────────
+CTX : noob question alert i need to manually install my wifi driver on a laptop that has a fresh ubuntu install . i do not have a wired internet connection to use and i cannot find a driver download center in the support . am i missing something here __eot__ is this for a broadcom wifi __eot__ i think it is a broadcom wifi the laptop is a dell inspiron 1501 __eot__ yep . bcom43 . you are in luck . you can do it all the installation directly from the boot media . wait one . grr . china is throttling internet again so my connection is too slow to do the search . here is the deal your boot cdrom usb has 5 files that you can copy to your desktop . then use terminal to install them modprobe to activate and you have got internet . takes about 5 minutes . search ubuntu broadcom no internet access this might be a good link __url__ or this one __url__
+RESP: thanks a bunch that is a lot of help hopefully this frankensteined dell laptop will be cruising on ubuntu in no time d
+
+── Pair 073 ──────────────────────────────────────────────────
+CTX : hey guys i am trying to install libreoffice from the repositories but it is throwing a wobbly . can anyone help looks like dependency problems but when i attempt to resolve them it throws a wobbly at me . __url__
+RESP: try apt-get install -f' it looks like you do not have java install you need to try to run apt-get install -f' just that string try apt-get purge libreoffice' it looks like you had it installed previously
+
+── Pair 074 ──────────────────────────────────────────────────
+CTX : is there a way to prevent ubuntu from writing to external drives until they are unmounted i mean i have a lfs build on a sdcard for the pi extracting files takes forever if its writing to the actual device if it could just do it in ram and then copy it over the the partition after
+RESP: until unmounted after unmount there is no writing either . use tmpfs depending on the size requirements
+
+── Pair 075 ──────────────────────────────────────────────────
+CTX : hi guys - just installed xubuntu and it looks like the pipe key' does not work correctly . if i run ls ls' i get ls command not found' any idea __eot__ what is the output of lsb_release -sc __eot__ precise __eot__ __url__ the command i copied and pasted from you is ok but when i type it it works __eot__ confirms that my key is screwed does not it __eot__ are you fully updated __eot__ yes
+RESP: what is the output of echo path what is the output of echo path
+
+── Pair 076 ──────────────────────────────────────────────────
+CTX : that is one of the main benefits of using a package system __eot__ what is the package name __eot__ honeyd __eot__ but i get here as honeyd's honeypot documentation and scripts __eot__ what __eot__ i do not find it . __eot__ what ubuntu version how are you looking for it __eot__ i am using 10.04lts
+RESP: honeyd is available there as well
+
+── Pair 077 ──────────────────────────────────────────────────
+CTX : zykotick9 i want to install libsvn-perl under 5.14.2 but it installs it under 5.10.1 when my perl version is 5.14.2 i need it for git-svn __eot__ what ubuntu version __eot__ 12.04 precise __eot__ so what is the exact issue with simply using the version in the repositories that you get by doing sudo apt-get install libsvn-perl __eot__ the issue is that when i run sudo apt-get install libsvn-perl it installs the files under __path__ and my perl version is 5.14.2 __eot__ i am not familiar with perl packaging but how are you determining that __eot__ finding the system for the files it should installed __eot__ can you pastebin the result of apt-cache policy libsvn-perl dpkg -l libsvn-perl
+RESP: if you see the package it should install under __path__ directory
+
+── Pair 078 ──────────────────────────────────────────────────
+CTX : okay __eot__ ok . at the command line issue the command sudo update-grub' and you will need to enter your password once update-grub' has finished you should try rebooting it . this time you do not need to interrupt the boot at all . it should be good on its own . let me know if it is or not . __eot__ thank you so much btw __eot__ you are welcome do not even think about it use libreoffice __eot__ is libreoffice compatible with excell and publisher and what not __eot__ i generally find it is yes __eot__ okay thank you ima reboot nowq __eot__ do that reboot now . it is 4.30am here and i need sleep aha . then that suggests the pause for the boot menu at boot-time is important . can you try booting again and this time press shift and hold it on the menu for 10 seconds then start it hmm . let us check that those changes you saved from the text-editor really have been used
+RESP: how do we do that
+
+── Pair 079 ──────────────────────────────────────────────────
+CTX : i am trying to install ubuntu 12.04 on my lenovo b570 laptop the installation goes without a hitch but when i reboot it does not seem to find the drive where the os is installed and is trying to boot from other devices could some one help on this isssue __eot__ check the bios or tap whatever key the pc uses to seleect a boot device . you have just the one hard drive or several __eot__ the boot disk priority is set right i have only one hard disk and i installed it from a pen drive on searching the net i found that a lot of people are having this problem but i could not find a definet solution . __eot__ if you are not seeing a grub menu . then it sounds like the system never installed grub for some reason . __eot__ let me give the link you had suggested a try and get back to you .
+RESP: not sure what instructions you followed . the official ubuntu fix grub guides tend to mention boot-repair as the first thing to try .
+
+── Pair 080 ──────────────────────────────────────────────────
+CTX : just as a global hint did you look in the older logs in the __path__ folder __eot__ is there a specific log i can look into i can reproduce the issue right now if needed it mostly does that when it has a little uptime __eot__ dmesg and syslog . but the get rotated and renamed after the reboot . so its dmesg.0 or dmesg.1 etc
+RESP: dmesg only speaks about some mismatches whereas i do not see anything specific on the syslog . is there anything i can grep it with
+
+── Pair 081 ──────────────────────────────────────────────────
+CTX : are you sure mtu isnt an issue __eot__ i set it to even 550 and no changes set it higher than 2950 and nothing either . well sorry everyone i mean how to do it how can i ping packet sizes
+RESP: ping -s you just ping -s 1400 some server
+
+── Pair 082 ──────────────────────────────────────────────────
+CTX : my laptop has 2 videocards . intel and nvidia optimus technology how do i know wich one its using for my desktop __eot__ always will be nvidia since optimus is not on linux __eot__ how can i tell its using the nvidia card though
+RESP: because it always will be
+
+── Pair 083 ──────────────────────────────────────────────────
+CTX : hello . bizarre problem with my 12.04 system on saturday it stopped recognising our wireless ssid . still sees scores of neighbours' networks and other devices win7 10.04 box android phone see and connect to the network fine . i have tried apt-get purge'ing network-manager-gnome and reinstalling to no effect anyone have any ideas why a certain network would be invisible to ubuntu 12.04
+RESP: hidden ssid is one if you scan for networks do you see lots of networks on the same channel
+
+── Pair 084 ──────────────────────────────────────────────────
+CTX : hi - i have noticed on several ubuntu 12.04 servers that __path__ was taking up over 40gb . on inspection i can see lots of files called
+RESP: you need to run apt-get clean
+
+── Pair 085 ──────────────────────────────────────────────────
+CTX : or just delete the users skype configs . __eot__ some apps store their settings in __path__ too assuming it is not an admin-configured setting in __path__ perhaps a file folder named .skype' or something similar in good catch cat on the keyboard sometimes you need to flash your credentials with a sudo to get things done - __eot__ to acomplish what exactly __eot__ lost the trail of thought on that accomplish thing do you mean project ideas i am looking at an idea i can take up and develop something like a ui for configuration of some __path__ setting __eot__ you asked abou doing somthing while idle . somthing like what __eot__ that . i was hoping to write an app to share cpu processing for linux but i am not sure of how to tell if the computer is idle perhaps to accomplish video encoding . but keeping it open at this stage it would be useful to have a desktop running idle to take up a video encoding job so that the laptop does not run down its battery or get superhot really which ones i have only used freemake and handbrake so far . __eot__ or mencoder . about the only i use
+RESP: distributed encoding should be cool on a wired lan . wireless transfers tend to take a while . it is cool on smartphones too .
+
+── Pair 086 ──────────────────────────────────────────────────
+CTX : 1tb __eot__ and the device is still __path__ __eot__ yes __eot__ i am assuming that you are seeing your partitions of course . how weird __eot__ yes i am seeing them fine here . __eot__ try using the create partition table' option from gparted which should change everything to unallocated space . do not create your partitions though . go to the install ubuntu program after that and let the installer create the partitions __eot__ i have tried that using gparted removed all partitions and tried to install with it empty still would not allow me to create partitions and never an option on boot of the cd to use entire disk . __eot__ how much unallocated space did it give you
+RESP: nothing was allocated no partitions of any kind .
+
+── Pair 087 ──────────────────────────────────────────────────
+CTX : fair enough __eot__ what do you mean __eot__ you might try nvidia-xconfig' and restart the x-server . otherwise my best guess would be to run ubuntu until it works then install xfce on top . __eot__ do i have to run nvidia-xconfig i a terminal or is there any gui application __eot__ terminal i honestly do not know . __eot__ i run nvidia-xconfig i a terminal and i got command not found . i suppose that nvidia driver is not installed . is that possible __eot__ potentially . do you have anything listed in system settings additional drivers __eot__ experimental nvdia nvidia accelerated graphics driver v . 173 nvidia accelerated graphics driver v . 17-updates nvidia accelerated graphics version current recommended nvidia accelerated graphics post release updates version current-updates nvidia accelerated graphics driver experimental beta version experimental-304 . on one is activated misstype . no one is activated . ok thanks . that is the point . in case that the systme cannot restart what can i do to login to disable my choise
+RESP: that is a good question and well thought-out . i hope someone here knows how to disable video drivers from the command line because it is much too late for me to remember .
+
+── Pair 088 ──────────────────────────────────────────────────
+CTX : what is wrong with this -- ar -cvf --exclude var' --exclude media import' --exclude media __path__ backup.tar.gz public_html -- it seems to create a file actually called --exclude var'' lol __eot__ because the word after -f is what it takes as filename
+RESP: so it should be tar -cv --exclude var' --exclude media import' --exclude media __path__ -f backup.tar.gz public_html
+
+── Pair 089 ──────────────────────────────────────────────────
+CTX : some of my hds wont mount an neither with usb flash or sd cards what could be going on
+RESP: could you state that more clearly this from plugging them in or running a mount in the cli and are any in fstab
+
+── Pair 090 ──────────────────────────────────────────────────
+CTX : anyone help me in getting ubuntu 12.10 to print after install everything else works esp3250 kodak did not know if i would get someone to help
+RESP: this may help although kodak printers do not appear to be well supported in ubuntu __url__
+
+── Pair 091 ──────────────────────────────────────────────────
+CTX : hi i am wondering how to change the directory that vsftp logs me into __eot__ check __path__ __eot__ thank you __eot__ thats the default directory so use cd __path__ __eot__ it says that it does not exist i need to have my ftp open to __path__ folder __eot__ check home your_user_name oh well then you need to change the settigns or check home your_user_name .vftp oops i meant . check home your_user_name .vsftp __eot__ hmm it is still telling me the directory does not exist __eot__ well you could do a search for the files that are in that folder and then find it that way
+RESP: that is what i guess i will have to do .
+
+── Pair 092 ──────────────────────────────────────────────────
+CTX : but ubuntu is very heavy and slowly __eot__ it is fast and swift here __eot__ how desktop use kde or xfce __eot__ the best way to learn is by using it __eot__ i know __eot__ try them all then decide which you like more __eot__ but kde is very heavy and xfce is buggin any sugestion
+RESP: try some other de then decide
+
+── Pair 093 ──────────────────────────────────────────────────
+CTX : ok looking for it i do not see 3.6 __eot__ 1 sec i get the link __eot__ thanks . __eot__ ignore me thats the right one now extract with tar zxvf compat-wireless __eot__ the 3.5 one __eot__ yes __eot__ so i type tar zxvf compat-wireless into terminal __eot__ yes if thats where the download is broadcom a pain in the
+RESP: yes it is i just extracted it from the folder window but now what
+
+── Pair 094 ──────────────────────────────────────────────────
+CTX : i have a folder a' and a symlink to that folder shortcuttoa'. how can i delete the folder a' using the symlink
+RESP: look into readlink i suppose
+
+── Pair 095 ──────────────────────────────────────────────────
+CTX : scp with password any idea someone __eot__ what is your actual problem what are you trying to do mount your ssh stuff as an sshfs to a folder and then simply copy as you would locally . i do not think there is a way for ssh to accept plaintext password that'd be just plain insecure and silly __eot__ . __url__ will allow __eot__ scp -b' is for preventing the asking for password using only keyfiles . the syntax is user host directory there is no way for scp to accept plaintext password . give up . depends on your client . __eot__ ref pm __eot__ i am going to put you on my ignore list instead since you have to ask for permissions before pming people . that was just rude .
+RESP: any help with custom msg
+
+── Pair 096 ──────────────────────────────────────────────────
+CTX : when i rebooted into the linux live cd and issued sudo update-grub i got __path__ error cannot find a device for is dev mounted . __eot__ no that is not what i was saying please read again . so you need to install grub to your linux os which from your paste is located under __path__ after that is mounted you install grub to it . after that you can unmount the partition and then reboot into your linux os not the live cd then you run sudo update-grub then reboot and you will have everything __eot__ in the middle of the process of installing ubuntu the install failed and told me the image was bad so i do not have a working linux os to boot into just windows when i try to boot in i get a black screen with a long list of errors related to missing files and then it reboots __eot__ start fresh and re-install __eot__ i tried twice the image i wrote to this usb stick is 100 bad i only have my windows partition to create new bootable usb's from i did that it does not match p
+RESP: maybe get new image then
+
+── Pair 097 ──────────────────────────────────────────────────
+CTX : hey guys i am missing some packages i want to install via apt-get libpngwriter0-dev libpngwriter0c2 libjpeg-prog libavcodec52 libavformat52 any idea how i could get hold of them ubuntu 12 no __eot__ is this for opencv __eot__ yeh __eot__ if so apparantly following this guide but replacing step 2 with steps 1-3 ftom this guide __url__ will make it work d according to a random comment about missing those packages in ubuntu looks like you may not even need thsoe packages because the replacement steps dont show it at all nzb is a usenet reference file so yes much like a .torrent file . referencing where to download files from for whatever package . sorry didnt see until after i posted it read up i immagine sabnzbd is available for linux it should handle them fine python technically its a download manager for nzb files runs as a web server though takes a bit of setup __url__ has apt commands for it __eot__ i am following the opencv installation guide atm but will use that as and when i bump into issues thanks
+RESP: oohh so this is about the proper associations i know nothing about opencv so hopefully it works xd
+
+── Pair 098 ──────────────────────────────────────────────────
+CTX : iv had ubuntu for a while i was having problems booting today for some reason __eot__ but can you actually answer the question __eot__ the answer is no __eot__ ah cool thanks i was just wondering on that in regards to know grub others are going to be more helpful than me here . __eot__ you there __eot__ yeah . __eot__ i just got into grub what should i do again enter recover mode __eot__ that was my idea as far as a easier then the cd method at messing with the graphics which i know nothing about .
+RESP: and what do i do in recovry mode
+
+── Pair 099 ──────────────────────────────────────────────────
+CTX : how do i check if i have a certain package installed on command line __eot__ dpkg -l grep -i keyword __eot__ dpjg -i is trying to install apt-cache policy package says unable to locate package poliocyuy
+RESP: l' is not i .
+
+── Pair 100 ──────────────────────────────────────────────────
+CTX : i am just going to have to find a new file manager to replace thunar and there is no way i will use nautilus anyone have a suggestion i __eot__ pcmanfm __eot__ just installed it i like it so far brb for a test run of first boot __eot__ cool . it is not fancy but it is small and quick __eot__ you are awesome thank you . __eot__ easy enough __eot__ does this have open terminal here' and 2pane mode' options found terminal option just looking for 2pane __eot__ f4 for open terminal i use ctrl-t for tabs rather than split screen or more often i open two instances of pcmanfm if i really want that
+RESP: i have also got emelfm2 for backup for my two-pane needs p i do like pcmanfm as a default though much more zippy than thunar ever was and it is not useless like nautilus
+
+── Pair 101 ──────────────────────────────────────────────────
+CTX : what is not working __eot__ installing the 12.04.1-alt-amd64 . failes on select and install software' __eot__ did you make a integrity check md5sum bla.iso __eot__ syslog shows xserver-xorg-video-radeon' is not installable
+RESP: coze i had a similiar problem during the installation . i tried to install from ubs-stick . but the used program for the usbstick made a mistake from dvd cd or usbstick if usb-stick use unetbootin
+
+── Pair 102 ──────────────────────────────────────────────────
+CTX : cant find in cups spoller entry any solution for this kyle i did download ubuntu 10.04 everything is fine but cant get printer to work and it troubles me since its must need
+RESP: can always try to include testing repositories or something and do an dist-upgrade p
+
+── Pair 103 ──────────────────────────────────────────────────
+CTX : for cpu ram usage i use htop' from cli drivers are mainly a kernel issue - additional drivers' or whatever it is called now makes many other drivers installs in ubuntu really straight forwards . __eot__ i think it is a driver issue because 30 minutes before the crash the usb2.0 controller went down so i had to connect mouse and keyboard to the 3.0 controller . then after 30 minutes the system halted but i get nothing on the logs __eot__ what graphics driver do you use __eot__ i did not really tweak the system not at all __eot__ does x have errors __path__ have any ees __eot__ i5 processors use hd3500 embedded vga __eot__ hd3500 is that intel or ati or something else lspci grep -i vga' would show for sure . __eot__ vga compatible controller intel corporation ivy bridge graphics controller rev 09
+RESP: have you seen __url__ involves adding some ppa
+
+── Pair 104 ──────────────────────────────────────────────────
+CTX : how can i do a swap i get swapon failed operation not permitted __eot__ sudo swapon -a __eot__ ok swapfile1 skipping - it appears to have holes . __eot__ swapfile should it not be a partition
+RESP: how can i swap i was trying an alternative mthod
+
+── Pair 105 ──────────────────────────────────────────────────
+CTX : ive tried sudo cp __path__ __path__ to copy files and i get cp ommitting dir __path__ ah god damn it can anyone help me i have a problem with my user . i cant log in on it __eot__ can you login via console __eot__ dr yes i can __eot__ so when you login via lightdm what happens __eot__ i can log in only on tty __eot__ and what happens if you use lightdm . __eot__ there are no others accounts nly guest one __eot__ also test by making a new accouint via the console . and see if it works for them sudo adduser billgates
+RESP: sreen flashes and it throws me back into log in screen
+
+── Pair 106 ──────────────────────────────────────────────────
+CTX : sorry for rewriting this but i need some help and i have not been able to find anyone else who has my problem . i burned a dvd with ubuntu 32-desktop and tried to boot off of it with my mac . although it does reconize the disk and try to boot off of it all that it does is flash a white line . nothing more . whats wrong the reason i am doing this in the first place is to make an ubuntu flash drive that i can just plug into a comput __eot__ you could __url__ __eot__ yeah i tried that but that does not allow me to keep my settings after every time i boot . instead i can either choose to install it or just run the demo or to install it on my harddrive sorry yeah i tried that but that does not allow me to keep my settings after every time i boot . instead i can either choose to install it or just run the demo or to install it on my harddrive __eot__ you could in your mac terminal dd if image.iso of __path__ bs 8192 where image.iso is replaced with your iso name and __path__ your disk __eot__ so that would work
+RESP: it ought to worth trying at least .
+
+── Pair 107 ──────────────────────────────────────────────────
+CTX : need help uninstalling ubuntu . its not wubi i made a partition . need to uninstall reallocate the space to my windows drive and fix the start up back to windows only . a detailed guide would be useful .-. thank you __eot__ boot up windows __eot__ i am using windows atm dual boot . __eot__ find your windows cd __eot__ x'd thats the thing . dont got one
+RESP: plan b let me just find the link
+
+── Pair 108 ──────────────────────────────────────────────────
+CTX : i havea .sh that i made and when i click it i always get run in terminal . is there anyway to get rid of that well im wondering if i need to add bin sh to the top of the script .
+RESP: is it a bash script or a shell script .sh bash
+
+── Pair 109 ──────────────────────────────────────────────────
+CTX : do a what precise is the output yes
+RESP: have you tried a simple ifconfig eth0 up
+
+── Pair 110 ──────────────────────────────────────────────────
+CTX : when trying to export an sql database using this command mysql -u username -p -h localhost database-name database-backup.sql i am getting an error wrong password . the password is corect . any ideas __eot__ is the username correct __eot__ yes . the username is root __eot__ your line looks about right so what happens if you just try to log into mysql as root with the password you have what happens if you just say mysql -u root -p' and put your password in __eot__ error 1045 28000 access denied for user root' localhost' using password yes
+RESP: so the password is wrong
+
+── Pair 111 ──────────────────────────────────────────────────
+CTX : i am a total noob brb trying oh snap now it is not working i mean ctrl alt f1 does not bring me to the terminal i guess this means hard reboot the problem is that now i do not have access to any terminal ok sure thing with that' you mean ctrl alt f1' and setting the display __eot__ ctrl alt f1 will drop you to a console where you can restart x
+RESP: because i do not get to the console if i press ctrl alt f1 but it does not nothing happens
+
+── Pair 112 ──────────────────────────────────────────────────
+CTX : have you checked that rfkill' is not on rfkill list' __eot__ just ran that . soft and hard block say no'. not sure what that means . __url__
+RESP: that is good - it means that the radio transmitters are not killed - in other words they should be working how about the output of this grep -i bluetooth __path__
+
+── Pair 113 ──────────────────────────────────────────────────
+CTX : anyone knows how to set up ubuntu server to use speedstream 4100 in bridge mode connecting through pppoe pppoa pppoeconf does not find it __eot__ i had a similar issue some time ago it turned out the adsl modem's embedded linux kernel was missing one of the disciplines required to support ppp i discovered that pppoa was missing the discipline but pppoe was ok i added a simple setup to __path__ and ppp0 to __path__ this is my __path__ script __url__
+RESP: you have some guide how to set up rp-pppoe
+
+── Pair 114 ──────────────────────────────────────────────────
+CTX : having a valid root login is silly they cannot edit __path__ without going root and they cannot do that without their password __eot__ you do not need any password or credentials to do that if you boot up differently __eot__ if you boot in single-user mode no but in pretty much any os if you have physical access to the machine and the ability to manipulate the boot sequence you can get root access
+RESP: thats what i was trying to explain
+
+── Pair 115 ──────────────────────────────────────────────────
+CTX : cause in his case it will not work anymore just use radeon what will chrome for linux do some things cannot be done with html5 . at least not yet youtube does html5 video for years now . youtube will be fine without flash __eot__ depends it will tell you to update your flash through chromium and firefox __eot__ firefox has no inbuilt flash so it fully depends on the adobe plugin that will not exist anymore __eot__ if you read yes html5 is the slim lined players but anything that runs an add on the video will not work couldnt her just run lshw -c display __eot__ and does it show what x uses or what the kernel has for drivers __eot__ no itll just list the driver listed for the displays attached
+RESP: it tells me at least for some devices the kernel driver version configuration broadcast yes driver ath5k driverversion 3.2.0-1-686-pae firmware n a ip __ip__ latency 168 link yes for my wlan
+
+── Pair 116 ──────────────────────────────────────────────────
+CTX : why will not my install allow my to ctl alt f1 to login to graphical mode sorry i meant text mode
+RESP: what video driver is in use with nvidia for example some configurations result in the loss of a framebuffer for the text consoles
+
+── Pair 117 ──────────────────────────────────────────────────
+CTX : is it too bad if i add a line at __path__ in order to upgrade virtualbox since it moved from non-free to contrib __eot__ normally one uses the __path__ one per new repo . the vbox guide shows how to install it from the vbox homepage i belive __eot__ and thats exactly what it says . add one of the following lines according to your distribution to your __path__ __eot__ they may have ppa instructions also . ive not needed the vbox from their homepage in ages . why do you need it __eot__ what do you mean vb __eot__ its in the repos last i looked . __eot__ it is but not updated .
+RESP: the extension pack is about the only extra thing i needed . so what newer feature does it have that you need
+
+── Pair 118 ──────────────────────────────────────────────────
+CTX : hi all . i am trying to install gcc-3.4 from jaunty's repos . i am having an issue with my __path__ -- i have added the following line to get access to the jaunty repos but gcc-3.4 still is not found deb-src __url__ jaunty main restricted __eot__ deb-src is for the source packages . not the binariey pckages __eot__ thanks i have an app that requires gcc-3.4 __eot__ and what release are yoiu using now __eot__ i am installing this on 10.04 __eot__ you are using jaunty in a vm on 10.04 __eot__ no running 10.04 and trying to add the jaunty repo __eot__ i bet it wont work either .
+RESP: the only line in my sources.list is that repo and it still will not find the package
+
+── Pair 119 ──────────────────────────────────────────────────
+CTX : can someone help me with permission for __path__ and its folders owner should be root or me and group should be www-data __eot__ out of the box i see root and root -rw-r--r-- 1 root root 177 jun 25 01 21 index.html __eot__ root root with rwx access and others will be www-data with 755 access
+RESP: like said this is what i get out of the box
+
+── Pair 120 ──────────────────────────────────────────────────
+CTX : talking about chroot . is there something' like chroot that allows me fake a mount say __path__ that only is visible writable for one process
+RESP: only with chroot or apparmor i guess
+
+── Pair 121 ──────────────────────────────────────────────────
+CTX : if you are running ubuntu 12.04 is there anyway to get the classic gnome back like in 10.04 i'm installed gnome-shell but it is like the 11.04 gnome . the way that window dragging works at the bottom of gnome-terminal in the new version of gnome drive me crazy . it is hard to click in the right place to expand the window out . it was better before imo
+RESP: the window draggin is very annoying . if you use the top right its a little easier you get like a 1-pixel grab location for the drag
+
+── Pair 122 ──────────────────────────────────────────────────
+CTX : it writes 1 make 2 sudo checkinstall . but i cannot even get to 1 __eot__ compiling should be a last resort i gave you that link so you know you can make a .deb for easier uninstall i do not know how to help with make sorry what are you compiling __eot__ __url__ media player in install file its said 1 . configure 2 make 3 make install . __eot__ i thought that project was dead what is wrong with using audacious __eot__ i just need alternative to vlc it does not works __eot__ audacious does not work __eot__ could you tell a good alternative to vlc default player also runs .mkv film with lags . i do not even know what is it . __eot__ beepmp is for music not video its been dead for years audacious replaced it for video vlc has worked great for me but you could try gnome-mplayer check that you have gstreamer-plugins-bad ugly installed
+RESP: e unable to locate package gstreamer-plugins-bad
+
+── Pair 123 ──────────────────────────────────────────────────
+CTX : how can i check if a script is already running using pidof pidof -s programname that works well but i have a space the process is __path__ . processname.sh'
+RESP: could use ps -ef grep name you can still grep for the process name then just grep for a bit of the name
+
+── Pair 124 ──────────────────────────────────────────────────
+CTX : just installed 12.04 on a machine and always comes up as readonly on boot . not finding any obvious messages in the logs as to why it is behaving that way . where should i be looking
+RESP: check __path__ - dmesg kern.log and syslog in particular . use log file viewer' to open the logs
+
+── Pair 125 ──────────────────────────────────────────────────
+CTX : i have a problem with booting ubuntu from a usb stick which appears to be full - is there a way i can remove files from the command line __eot__ rm __path__ __eot__ there is not a specific file which i need to delete - it is more removing tmp files
+RESP: just delete some stuff in __path__ is all i know .
+
+── Pair 126 ──────────────────────────────────────────────────
+CTX : 0 down vote i made a bootable usbdrive with antix linux on it . it work fine on my new laptop . but on my old laptop it does not . it give me the message that there is no bootabtle device something like that . is there anyone who can tells me why ps . what i did was sudo fdisk -l to see the usbdrive i wanted to make bootable sudo dd if antix.iso of __path__ in my case sdb . __eot__ antix linux is not supported here __url__ if you want distro independant support try linux it is not ubuntu server the link i gave you takes you to the support channel of your distro lubuntu is slightly lighter if you want super light install ubuntu minimal then install openbox no desktop needed __eot__ ok thanks a lot . i use the ubuntu server but sometimes i want to use only the minimal requierments for watching movies because its hooked on one of my lcd __eot__ that is pretty much as light as it gets you may want to install slim as a login manager too __eot__ i will test the openbox thanks a lot . i will ask about the dd command somewhere else __eot__ ubuntu minimal xorg openbox is about 1.2gb installed if memory serves if you use __path__ to configure networking you can save space there too __eot__ ok thanks . i was looking for e text editor to save your messages in xfce . but could not find it . i open a terminal and type gedit -
+RESP: mousepad you can run sudo ln -s which mousepad __path__ to make life easier
+
+── Pair 127 ──────────────────────────────────────────────────
+CTX : the move resize button is disabled . __eot__ ah ok __eot__ any idea __eot__ in fact i have already done it before . just do not remember the commands __eot__ could you point me to a tutorial __eot__ if i find it i think you cannot resize it because it is mounted __eot__ already checked and it is unmounted __eot__ but in your image there is mount point
+RESP: i see how would unmount it
+
+── Pair 128 ──────────────────────────────────────────────────
+CTX : no the live and install are different __eot__ thanks for the reply . just saw your post . that means regardless the change i did to liveusb with persistent storage when installing to harddisk the liveusb will always use the original iso . is this right what if i uninstall some packages from liveusb . maybe they are read-only i have not tried yet . __eot__ the changes to live you make will not apply to the fresh install of ubuntu to hdd yes it will only do a fresh base install so you will have to reinstall the additional packages
+RESP: got it . thanks .
+
+── Pair 129 ──────────────────────────────────────────────────
+CTX : precise __eot__ does the system have a make and model __eot__ __url__ __eot__ __url__ you may need an xorg.conf file if your display is not playing nice __eot__ the 3150 video card is not even in lspci __eot__ sudo lshw -c display use a pastebin please __eot__ did you see the paste bin link never heard of quantal __eot__ you may need an xorg.conf if the display is not playing nice . have you tried quantal are you fully updated
+RESP: last i checked i was i will make sure again
+
+── Pair 130 ──────────────────────────────────────────────────
+CTX : how can one list files in all subdirectories without separating them by folder __eot__ find . -type f
+RESP: how can you sort the results
+
+── Pair 131 ──────────────────────────────────────────────────
+CTX : so is there or is not there an android emulator that works on ubuntu __eot__ any reason why it is not working for you __eot__ i was about to say i cannot find one -- i will look at your link now thx so i cannot find goldfish' on software center -- and the link you sent me does not show a download __eot__ it is not a download from them or any place reallym go to google for their sdk __url__ more info on qemu __eot__ k i had heard that android code was being merged directly into the linux kernel -- i guess thats what i was looking for i think qemo is prolly over my head __eot__ what you do not make any sense . it is always got some android code in it . it is directly contributed to __url__ __eot__ it was broken off and only recently is coming back into kernel -- that is my understanding __eot__ you should be asking some of these questions in linux or kernel .
+RESP: i want to know when it is ubuntu-ready'
+
+── Pair 132 ──────────────────────────────────────────────────
+CTX : hey guys i am trying to figure something out i need to stop a module from loading when connecting a usb device if anyone has a good way to stop the module from loading let me know trying to resolve a bug its loading as part of the evdev driver yeah i figure i probably do not want to black list that entire module well let me give it a try really quick if my keyboard stops working we know what happened one sec let me spin up a vm and try actually they have an updated tarball on wacom website i would try installing the whole thing are you trying to get a lenovo mutlitouch display working
+RESP: a bamboo pen touch .
+
+── Pair 133 ──────────────────────────────────────────────────
+CTX : is there a way to change the local console message that you see after everything boots up ubuntu 12.04.1 lts hostname tty1 hostname login
+RESP: shure you can make it say anything
+
+── Pair 134 ──────────────────────────────────────────────────
+CTX : also try disabling ipv6 __eot__ what is weird is that sabnzbd can do 2.2mb s over the interet using the same connection . which is odd already disabled it to help troubleshoot __eot__ if you run sudo lshw -c network what network chip are you using __eot__ output from that command __url__ __eot__ if you run ifconfig lsb_release -a what is output please you have a 10 error packets recieved . tried a different cable or port on the router switch is it 100mb ethernet __eot__ the cabling i think it is standard cat 5e to a 1gbps switch . never had issues with the cabling in the past __eot__ is the router 1gbps too sudo apt-get install ethtool sudo ethtool -s eth0 speed 1000 duplex full __eot__ done . i am assuming that is forced the card into a particular state
+RESP: may help its active immediately sudo lshw -c network will show the state
+
+── Pair 135 ──────────────────────────────────────────────────
+CTX : sudo service networking restart but i just remembered that they disabled the restart' option . so yeah you have reboot what disabled your wifi i do not understand __eot__ it was not disabled but it did not save the wireless settings i rebooted my pc after downloading some video drivers __eot__ so on reboot the wireless is not working is that what you are saying __eot__ that is correct __eot__ do you know how to reactive' it once you are rebooted __eot__ i have to go back to the command line and bring the interface up and configure the ssid settings iwconfig each time but it now has a network connection __eot__ in your __path__ file add a line for you wlan0 device that is identical to your eth0 do not have a auto wlan0' line __eot__ .what eth0 there is no information for eth0 in the interfaces file so what should i be adding on there
+RESP: pastebin your interfaces file please __url__ i will make the change and show you the result . trying to explain it is too difficult
+
+── Pair 136 ──────────────────────────────────────────────────
+CTX : hi all can anybody tell me how to install powerdvd in ubuntu 12.04 .
+RESP: o would recomend vlc videolan in linux does everything powerdvd will do and then some __url__
+
+── Pair 137 ──────────────────────────────────────────────────
+CTX : i have installed ubuntu last days my roommates are complaining on lags every 20 seconds ping increase for a second and get normal when i turn off computer problem dissapeare __eot__ - are you using a shared internet connection __eot__ yes one network connection for 3 computers
+RESP: ok - how are you all connecting micom wireless or cable
+
+── Pair 138 ──────────────────────────────────────────────────
+CTX : hi people anyone uses vmware anyone knows how to fix lot of gtkwarning gtk-warning unable to locate theme engine in module_path equinox' i have equinox installed __eot__ how did you install equinox __eot__ i did
+RESP: did you read my question clearly
+
+── Pair 139 ──────────────────────────────────────────────────
+CTX : hey guys i am having some trouble - i just installed ubuntu server but i cannot ssh into it the ssh service is running and i can get a connection via telnet 22 but it is saying operation timed out' - any ideas __eot__ you do not telnet to port 22 you use ssh ip.address.of.server to connect
+RESP: oh i used telnet to see if i could get a connection when ssh was not working not together
+
+── Pair 140 ──────────────────────────────────────────────────
+CTX : does anyone know how to get flash to work in ubuntu 12.04 ubuntu-restricted is installed have tried chrome firefox and opera and is always crash __eot__ can you please give a pastebin of the output of lsb_release -a uname -a dpkg -l egrep flash gnash swf spark' __eot__ here you go -- __url__ __eot__ sudo apt-get --purge remove flashplugin-installer then enable the partner repo and install adobe-flashplugin may help __eot__ already done that __eot__ then your output would have shown the adobe-flashplugin package
+RESP: yes i have gone back again it did not work
+
+── Pair 141 ──────────────────────────────────────────────────
+CTX : does anyone in here know how to get ubuntu to reinstall all installed packages i have tried the standard listed --get-selections - --sect-selections - -y update -- dselect-upgrade and it simply states there is nothing to update . i have also tried the bash for loop option that is sometimes mentioned but it actually tries to reinstall things that i have removed as well
+RESP: ah i see you have tried this method . why do you need all installs reinstalled
+
+── Pair 142 ──────────────────────────────────────────────────
+CTX : can someone help me setup my nfs server . im having many problems __eot__ i use nfs let us hear it __eot__ rpc.nfsd writing fd to kernel failed errno 111 connection refused i cant get the nfs service running __eot__ what was the command you gave to make it run __eot__ i think post 7 might help me but im not sure how to set the custom rules or anything __url__ sudo __path__ start
+RESP: both regular pc's local and remote
+
+── Pair 143 ──────────────────────────────────────────────────
+CTX : mmm thanks could you give me an opinion on this setup boot ext3 ext4 data that 2tb partition ext4 __eot__ why a separate boot partition __eot__ hmmmm . dunno i always did it that way . ah i remembered last setup used lvm so boot was a diferent partition maybe i ll keep it for future flexibility to reenable a lvm __eot__ if you want about 300mb boot etx3 8gb ext4 the rest for home ext4 __eot__ also home is going to be on a diferent partition . same fs as just 8gb . i was going to make a 50gb partition for xd lol __eot__ why so much __eot__ id did not gave it enough mind i was thinking the windows way xd __eot__ do you have ubuntu installed now with separate home patrtition
+RESP: i have the home on other place
+
+── Pair 144 ──────────────────────────────────────────────────
+CTX : if i have a package how can i distinguish that it is an ubuntu package __eot__ like a deb file you mean __eot__ i meant to say it is original ubuntu's package or some of it is derivative packgage for eg mint __eot__ mint and ubuntu use same packages they work on either it is just a pure debian package will not always work on them both
+RESP: i want to work debian packages i have to convert it into ubuntu package to make it work
+
+── Pair 145 ──────────────────────────────────────────────────
+CTX : ubuntu 12.10 boots up to a black screen on my dell latitude d610 . anyone else have this problem
+RESP: is there an efi uefi setting in the bios for the display
+
+── Pair 146 ──────────────────────────────────────────────────
+CTX : i hope i will never have to upgrade from lucid . well or i have to buy a new computer . __eot__ why . you can update your critical updates i do not know your problem __eot__ the problem is that lucid is only supported until april 2013'. so i do not know what i am going to do next year . __eot__ that was not a big problem what causes troubles aha are you sure you should trry to ensure your architecture what is you try to install __eot__ 12.04
+RESP: you not sure with your choices if the older release works i think the newes release should work too
+
+── Pair 147 ──────────────────────────────────────────────────
+CTX : hi how can i see if any firewall is active in my ubuntu anyone
+RESP: i would guess sudo iptables -l -n'
+
+── Pair 148 ──────────────────────────────────────────────────
+CTX : hello . can someone point me to a beginner help room please how about regular help or is this it __eot__ you can ask here there is also ubuntu-beginners here freenode i downloaded it unpack by clickin it it opens in fileroller extract then open nautilus filemanager and click foldit . it starts downloading some stuff and have fun puzzle looks like fun thanx for the tip cd to the place where you unpacked it nautilus or other filemanager will do __eot__ may i pm you __eot__ i cannot see where you unpacked the game . i made a folder in my home if you cannot find nautilus open terminal ctrl alt t and type nautilus __eot__ that pulls up the file system as i normally see it
+RESP: now browse to the __path__ folder
+
+── Pair 149 ──────────────────────────────────────────────────
+CTX : hay people hi who might advice me how to see what is programs used my ram memory __eot__ htop __eot__ what is column i should see and how to sort by memoty column __eot__ look at the bottom f6
+RESP: and how to make not mem usage and real values
+
+── Pair 150 ──────────────────────────────────────────────────
+CTX : hey does anyone know how to install ubuntu with virtual box does anyone know how to install ubuntu with virtual box can they help me out guide me though it i have windows and want to use vm to run ubuntu too __eot__ you can connect the ubuntu iso to the vm as a cd-rom . when you boot the vm it will boot from the iso and install ubuntu . __eot__ does anyone know how to install ubuntu with virtual box can they help me out guide me though it i am using windows but i want to run ubuntu on a vm i have both the ubuntu.iso and virtual box installed on this computer installed
+RESP: i just told you what to do . did you try that
+
+── Pair 151 ──────────────────────────────────────────────────
+CTX : hello i am configuring my interfaces i got 2 so this is my interfaces file __url__ i got an error when ifup eth1 ignoring unknown interface eth1 eth1 why this __eot__ check the line after auto eth1' it has to be iface eth1.' not iface eth0 __eot__ thx stupid error __eot__ typical copy paste error __eot__ yes ok si i got another issue not related cannot ping public ip __eot__ your public ip from inside lan __eot__ it is connected directly to modem to be more clear modem is connected to cisco and my ubuntu is connected to cisco switch
+RESP: is your modem configured to ignore icmp-requests or does your isp filter this
+
+── Pair 152 ──────────────────────────────────────────────────
+CTX : ubuntu installer is not giving me an option to install alongside windows' what gives it is only either replace or something else.' i have not ever done this manually before that is why i am skeptic . for instance where does the bootloader go yeah i am scared . i thought so too but does it nope . it puts __path__ automatically there which i can only make out to be the flashdrive i am using to install it . not doing that at all location for boot loader installation should i just pick sda 1 - windows 7 loader __eot__ do you have the windows backed up a clone __eot__ nope . __eot__ you need to have that or at the least a way to reload or install in case you need to .
+RESP: i have windows install media ready so that is not much' of an issue . the boot loader is supposed to go to the root of the hard drive . __path__ then right
+
+── Pair 153 ──────────────────────────────────────────────────
+CTX : can somebody help my computer will not boot . i let a program change registry settings . all i have is an ubuntu live cd . this just flashes on the screen before shutting down __url__ . the program has an option to revert the changes how would i use ubuntu to open it and revert the changes this is the program __url__ __eot__ i think it is f8 you are looking for . you should press f8 before windows boots and select restore last working settings yet i also should remind you this is not helpdesk but ubuntu helpdesk for ubuntu related problems
+RESP: f8 does not work on my computer i always had to ge into msconfig and select boot in safe mode then restart .
+
+── Pair 154 ──────────────────────────────────────────────────
+CTX : hi all hi all . just after the upgrade to 12.10 my ubuntu stops working . only a black screen no splash nothing but the livecd works well __eot__ what video chip do you use __eot__ intel
+RESP: add the boot option nomodeset
+
+── Pair 155 ──────────────────────────────────────────────────
+CTX : hello . bizarre problem with my 12.04 system on saturday it stopped recognising our wireless ssid . still sees scores of neighbours' networks and other devices win7 10.04 box android phone see and connect to the network fine . i have tried apt-get purge'ing network-manager-gnome and reinstalling to no effect anyone have any ideas why a certain network would be invisible to ubuntu 12.04 __eot__ what happens if you select network icon- edit connections- wireless does the ssid show up there __eot__ it did but that is just a list of connections that've been used or attempted before right one piece of advice i read somewhere suggested cleaning that list so i deleted our network wardog' - was here when i moved in p from that list . so no does not appear in network connections - wireless anymore __eot__ how about on the command line sudo iwlist scan' and pastebinning the output __eot__ will do . __url__ this was run on the 10.04 system i am using right now which is seeing the ssid connecting fine when run on the 12.04 system with the problem a few more networks are shown newer system better wifi reception but not the one i am looking for __eot__ can you try on the 12.04 machine sudo iwlist channel' __eot__ __url__ eh looks like some weirdness there - the 12.04 machine is currently sharing the wifi net connection on the 10.04 machine via ethernet
+RESP: blazemore was right earlier your wifi device does not support channel 12 - so you will have to change your wireless access point to use a different channel
+
+── Pair 156 ──────────────────────────────────────────────────
+CTX : how can i see if i am in a sub-shell in an x11 terminal __eot__ from a script __eot__ from bash . __eot__ from a script or interactively __eot__ interactively . can i put that information in my prompt in some way so if i run bash in bash i can see that in x
+RESP: are you telling me you do not know if you look at x or a console really
+
+── Pair 157 ──────────────────────────────────────────────────
+CTX : i am struggling with understanding gparted . trying to make my windows partition smaller and ubuntu larger . i can select that the windows partition should be smaller __path__ but after setting that i do not understand how to make ubuntu partition bigger __path__
+RESP: there is unused space grey behind your ubuntu partition
+
+── Pair 158 ──────────────────────────────────────────────────
+CTX : this is all in screen in a tty . x3 what script __eot__ if you dont agree with the eula i would remove the package __eot__ that is what i am having trouble with . huh what is the difference between safe mode and normal mode i have yaboot not grub __eot__ you know ur calls for it __eot__ no . xd __eot__ i dont know yaboot i found a purge if you agree to it then disagree __eot__ if you agree there is a way to disagree later __eot__ so after you agree to it reinstall it then sudo apt-get --purge --reinstall ttf-mscorefonst-installer well sorry . i would agree to disagree so to speak top kill the pid you could live into the box locate the package on the disk and manually remove it shareware both can be non-free and non-share you can try a usb boot . mount the __path__ cd into the mounted dir and locate ur package
+RESP: why cannot i do it from a normal boot wha
+
+── Pair 159 ──────────────────────────────────────────────────
+CTX : hi all i need to find a word at all of my file system find and sed coomand didnt help me what should i do plz __eot__ first of all start with a clear description . are you lookin for a word-file or a file containing a specific word __eot__ there are several files that may be my word is in it i wanna know those file that have my word . __eot__ and what methods have you tried so far in short grep can do that
+RESP: i just can search in a file my word with sed and find command but i need it search all of my files that exist on my file system .
+
+── Pair 160 ──────────────────────────────────────────────────
+CTX : do i need to change the permissions on a volume so that others logging on to the computer can see and mount them __eot__ add the option user in the entry you have for it in __path__ __eot__ otherwise it will only show up for the original admin account __eot__ they will only be mountable by those that can use sudo __eot__ it is not listed in the fstab but all volumes are automatically mounted in my original account
+RESP: then you will need to define it in __path__ if you want to use specific mount options
+
+── Pair 161 ──────────────────────────────────────────────────
+CTX : how can i stop networkmanager from running on startup just kill it once i have already started __eot__ 1st - why do you want to stop n-m from running 2nd - using interfaces file should disable n-m for that device . __eot__ want to try connecting to a wifi network with just iwconfig __path__ and i want to be sure nothing except me is trying to connect to a network __eot__ i have never manually setup wifi sorry do not know the specifics for it . i use wicd on my netbook unfortunatly you should consider wicd deprecated __eot__ from some stuff i read it did not seem that complicated once you know the essid and the key its just one iwconfig command __eot__ jrib's uninstall do disable is almost the official ubuntu method but renaming the __path__ script to n-m.disabled and reboot should also work . n-m may or may-not get in the way of that iwconfig though - i do not know . if you used __path__ i know n-m will be disabled . best of luck __eot__ what i do to __path__
+RESP: for wireless - perhaps nothing . i have never setup wireless manually before sorry i am useless . but if any of the wireless setup requires editing that file - then n-m will be disabled . good luck man .
+
+── Pair 162 ──────────────────────────────────────────────────
+CTX : rough translation 1 accelerated graphics driver from nvidia version 173 __eot__ 173 looks like you have an old nvidia card __eot__ what was that with old nvidia card'
+RESP: drop the 173 is the old nvidia driver
+
+── Pair 163 ──────────────────────────────────────────────────
+CTX : join this is the ubuntu channel ohh thx bazhang someone know if i can open metacity with lightdm stoped someone can help me with ligthdm can i close lightdm and open only metacity __eot__ lightdm is the login screen were you enter your password why __eot__ i want to close the gnome shell and only start metacity
+RESP: gdm is also a login screen . lightdm is the default login screen . they serve different functions than unity gnome shell and metacity
+
+── Pair 164 ──────────────────────────────────────────────────
+CTX : ppa marcm __eot__ but i would like to use php 5.4 on ubuntu 12.04 __eot__ the link ubittu gave allows you to searc the ppas . you would have found sudo add-apt-repository ppa webstack php sudo apt-get update sudo apt-get upgrade __eot__ hmm sounds nice d __eot__ all i did was search using the page __user__ gave nothing more .
+RESP: so that is from backports then
+
+── Pair 165 ──────────────────────────────────────────────────
+CTX : hi . i run ubuntu 12.04 on acer 5336 . i have black screen . i run it on nomodeset as per nixiepixel __url__ indications.however my resolution is really low 16 4 . i get nothing when running additional drivers' __eot__ 16 4 firstly what is that ratio of secondly you realize that resolution and aspect ratio are not the same thing right __eot__ the resolution of the screen is really low __eot__ look at the output of xrandr p
+RESP: can you guide me on that too technical for me
+
+── Pair 166 ──────────────────────────────────────────────────
+CTX : people how to know where my apache2 logs stored __eot__ in terminal gksu gnome-system-log sudo tail -f __path__ .log __eot__ i am not sudo user __eot__ good luck
+RESP: maybe i should ask my administrator to give me a symbolic link to apache logs
+
+── Pair 167 ──────────────────────────────────────────────────
+CTX : unknown command root __eot__ seems you are using grub2 now . try set root hd1 1 __eot__ done now what __eot__ linux __path__ press tab __eot__ tab does not autocomplete to anyhting and linux is unknown command to __eot__ linux is also unknown command did you complete the installation __eot__ it asked me to restart it even updated grub from the web __eot__ that is strange . try this kernel __path__
+RESP: .unknown command kernel crazy stuff
+
+── Pair 168 ──────────────────────────────────────────────────
+CTX : that is odd . what device is this __eot__ asus x75a laptop . __eot__ let me see if i can check something out . i have a samsung chronos 7 series . xd __eot__ alrighty . thanks . __eot__ should be a easy install on there i had a 8 gig onboard ssd drive and it listed it but i have not used it . anyways do you have anything on windows i am thinking a fresh start by erasing the whole hard drive and getting rid of the mbr along with it . __eot__ i am thinking this may have been because i deleted all of the no-sense partitions from windows 8 immediately . for instance the backup restore partitions and such . they are stupid for me to have . __eot__ windows 8 makes to file partitions 100mb and the system the 100mb is the obvious mbr location . __eot__ perhaps something got lost . however windows booted fine earlier even after the linux install . it just booted directly into winderz . after i messed with gparted and boot-repair' i cannot log into anything . right . i left 300mb at the beginning of the disk . it is still there .
+RESP: boot repair from windows or linux
+
+── Pair 169 ──────────────────────────────────────────────────
+CTX : download esm_ samba naphatul __eot__ yes i already said i tried google and various wiki's apparently i am missing something __eot__ ah ok so what is the real issue
+RESP: i cannot acces my windows 7 shares i tried adding various commands at the end of smb.conf but they did not help
+
+── Pair 170 ──────────────────────────────────────────────────
+CTX : there is a bottom task bar appearing in ubuntu 12.04 but i also have cairo dock so its getting behind it . i dont want it how do i get rid of it . can someone please help can anyone help me with this one there is a bottom task bar appearing in ubuntu 12.04 but i also have cairo dock so its getting behind it . i dont want it how do i get rid of it . can someone please help there is a bottom task bar appearing in ubuntu 12.04 but i also have cairo dock so its getting behind it . i dont want it how do i get rid of it . can someone please help there is a bottom task bar appearing in ubuntu 12.04 but i also have cairo dock so its getting behind it . i dont want it how do i get rid of it . can someone please help __eot__ probably you want to kill gpanel or gnome-panel or something __eot__ yes sir frappy . i think so . how can i __eot__ find a graphical process manager find the process and then kill it __eot__ how do i do that frappy where do i find a graphical process manager frappy where do i find a graphical process manager sir __eot__ i dunno it depends which desktop you are using __eot__ gnome frappy i am using gnome . __eot__ is not there some sort of search panel thing you can use to find applications
+RESP: no its nothing to do like a search panel . but its just a simple bar which appearing on the bottom of the screen just behind cairo dock and it has 4 tiny desktop windows at the right corner
+
+── Pair 171 ──────────────────────────────────────────────────
+CTX : i want to install the package gnome-session-fallback' with all its recommends but excepting gnome-session'. how can i do this it is a recommend it does not get installed if you aptitude install -r gnome-session-fallback
+RESP: aptitude has problems with multiarch so use apt-get instead than go and fix the multiarch problems
+
+── Pair 172 ──────────────────────────────────────────────────
+CTX : i tried that years ago . turns out gmail doesnt accept dynamic ips so it never worked for me . the whole things seems like a pain more than it is worth __eot__ how did you get round it as painlessly as possible __eot__ i was just playing around with php so i just posted the results to the screen rather than try to mail them i just figured out something different for my needs
+RESP: bugger i may try post fix instead
+
+── Pair 173 ──────────────────────────────────────────────────
+CTX : there was no effect i got correct resolution working by installing kernel 3.4.4 but no 2d acceleration and no vga output __eot__ file a bug __eot__ how __eot__ some of the older hw support is a bit iffy at times yes __eot__ i found this __url__ but where are the updates then __eot__ has not been aclaged yet
+RESP: do you know when i have waited this for about 3 months
+
+── Pair 174 ──────────────────────────────────────────────────
+CTX : maybe i installed it without x . service lightdm start assuming i had lightdm this should start it right i just forgot how i had disabled x it was not install it' i do not use it on this box __eot__ did you do server install __eot__ yeah i think so
+RESP: one can just disable x
+
+── Pair 175 ──────────────────────────────────────────────────
+CTX : i am trying to set the cpu speed to maximum by echoing performance' into the __path__ however i can still see the cpu speed changing in the __path__ any ideas why this is happening __eot__ which cpu __eot__ all of them __eot__ i mean which brand of cpu
+RESP: intel r xeon r cpu x5570
+
+── Pair 176 ──────────────────────────────────────────────────
+CTX : how to log in ssh shell via terminal
+RESP: ssh remote-address' or is you need to change users ssh user remote-address'
+
+── Pair 177 ──────────────────────────────────────────────────
+CTX : its a long list and it is very risky u lose lots of app the kde login is good for start . if its possible i did what u gave me but its gave me error __eot__ what is the error __eot__ package kubuntu-desktop is not installed so not removed __eot__ had you removed anything already and is this a straight kubuntu-desktop __eot__ yes i am on the unity desktop i wanted to try out the kde so installed it and now i want to remove kde again __eot__ if it is only that 4 files then copy the list to a gedit and remove those from the list and run it again . the deal with doing it this way is the full desktop has to be there to begin with if not you have to edit the list . there may be other ways but not easier . in gedit you can search for stuff with ctrl-f does that all make sense as far as editing the remove list __eot__ iam in gedit right now i let u know the result __eot__ i have run into the same problem with full desktops installed and just did it this way . so just out of curiosity what did you run to remove anything before this . and is this the kubntu-desktop or kde exactly
+RESP: this sudo apt-get install -y ppa-purge
+
+── Pair 178 ──────────────────────────────────────────────────
+CTX : are you using the default vim or have you installed vim-nox __eot__ default
+RESP: try installing vim-nox since the default is a tiny version of vim
+
+── Pair 179 ──────────────────────────────────────────────────
+CTX : gedit __path__ __eot__ thx __eot__ dpkg does not resolve package dependencies for you that is why you should use rather use apt-get in most cases . __eot__ i have downloaded the packages to my local directory when i ran this command apt-get install fglrx-dev_8.850-0ubuntu1_amd64.deb __eot__ apt-get installs packages from package repositories and download them from there . dpkg installs packages which are at a given location on your file system . to install the fglrx-dev package if it exists in ubuntu i have not checked you would run sudo apt-get install fglrx-dev' __eot__ the fglrx packages are old on repository that is why i have downloaded and used dpkg -i to install but then i get error as i mentioned before . __eot__ my impression is that you are in the process of breaking your package system because you are following a how.to which instructs you to carry out actions which are unsupported . you should not have installed those packages in the first place this is not supported . use jockey-gtk restricted drivers' to install proprietary graphics drivers if you think you want to do this . __eot__ thanks will do that i am not familiar with jockey-gtk but will google it . thx
+RESP: but for now you will need to try to recover the mess you just got yourself into .
+
+── Pair 180 ──────────────────────────────────────────────────
+CTX : doesnt seem to be the case in practice . did it before jockey failed . it couldnt activate the driver . __eot__ we already have gui could probably do sudo apt-get install nvidia-common nvidia-current-modaliases nvidia-current nvidia-settings' to install the driver __eot__ no goal to make the right resolution available again - nvidia driver failed horribly __eot__ what have you tried since moving the xorg.conf __eot__ when i log-out i get a login screen and the default option doesnt let me login cause gnome problem blabla' makes sense i dont have gnome . __eot__ you add the ppa with the instructions there first __eot__ what is the ppa __eot__ tj- gave you the link . __url__ i am still not sure what you mean by making it default
+RESP: wait i ll log out to see what ll happen now
+
+── Pair 181 ──────────────────────────────────────────────────
+CTX : it is ia32-libs-multiarch __eot__ oh wait that was the one i tried got lots of dependency problems __eot__ first on my mind make sure you are not using old repos __eot__ maybe i should check __eot__ type sudo apt-get update pastebinit and paste the url here __eot__ i learned some new trick from you - here it is __url__ __eot__ it is the natty repos below __eot__ but natty repos are commented maybe they are activated in the synaptic
+RESP: get rid of the natty ssources it may sovlve the issue
+
+── Pair 182 ──────────────────────────────────────────────────
+CTX : i hear ya but befor i looked it up i was trying chrome gchrome g-chrome . to no avail . i dont want to brute force it lol . __eot__ do you know the package name if you do then you can check what it installed you can do you know the package name if you do then you can check what it installed sorry with dpkg -s foo' see jrib above sorry i tested with -s and it looked like the right output - but you are correct that is show documentation or something my bad . __eot__ __url__ i can find what i want but only because i know what im looking for now __eot__ i do not visit __url__ __eot__ who doesnt go to pastebin do you have another prefrence __eot__ no adds no tracking . __eot__ i got no problem with that pastebinit wasnt working for it __eot__ you can use pastebinit with ubuntu paste btw as jrib pointed out it is -s i was wrong
+RESP: you said -s the first time then jrib said -l
+
+── Pair 183 ──────────────────────────────────────────────────
+CTX : can someone please tell me how do i install ubuntu and delete windows in the process when i download the ios file its the wubi installer and its not giving me the option i cant find the correct ios file i used the amd64 desktop iso and when i extracted the file it has the wubi installer
+RESP: dont extract that file use a program like imgburn to burn that iso to a cd-r just burn it to a cd-r and restart the computer
+
+── Pair 184 ──────────────────────────────────────────────────
+CTX : how do i make network manager nice gui to manage dsl connections default which booting system while
+RESP: it should manage dsl already .
+
+── Pair 185 ──────────────────────────────────────────────────
+CTX : try installing somthing from the terminal . look for error messages . so far it just seems update-manager is confiused . not the actual package system __eot__ the discription is also totally blank __eot__ i dont care about what the gui tool says . __eot__ kinda new to the terminal i dont know how to use it like that __eot__ so as a examaple you cant install anything and get some error when you try somthing like -- sudo apt-get install pioneers so try that command . __eot__ it is in process __eot__ so . the apt-get system does in fact work . __eot__ appears to with terminal
+RESP: you should have a game called pioneers' try running pioneers' from the terminal to see .
+
+── Pair 186 ──────────────────────────────────────────────────
+CTX : hi how can i tell networkmanager to forget about my wireless card for a while __eot__ network icon deselect enable wireless deselect enable networking maybe __eot__ ah thanks eventhough i feel stupid now p __eot__ what is your problem its a lightweight desktop environment if u want to try it out sudo apt-get install xubuntu-desktop it is not native dreamweaver only through wine maybe dualboot windows __eot__ oh noes it is still messing with my card even though i disabled wireless __eot__ or geany other than that im not sure then - __url__
+RESP: guess i will just kill that stupid nm
+
+── Pair 187 ──────────────────────────────────────────────────
+CTX : hey there is it possible to share my actual desktop in ubuntu through vnc __eot__ there is a builtin vnc server __eot__ i heard about but did not find how to start through bash __eot__ why start it through bash
+RESP: because it is my working pc and have to acces my started software from my laptop wind 7 is not it possible to share through bash
+
+── Pair 188 ──────────────────────────────────────────────────
+CTX : those puzzles are weak and too easy . i have black all nopasswd vz' and the user can still do sudo cat __path__ but shouldnt . i want to give user black access to __path__ only using sudo you cant cat __path__ as normal user . or ls __path__ as normal user if you opened a terminal try typing exit p does not alt f4 close current foreground application lol.i didnt know he did that atleast in his question he didnt state that . does 8.04 have sockstat in its repo i did apt-get install sockstat said package not found . __eot__ why still 8.04 it is not supported anymore in generl apt-cache search or show socks can help you but hardy is not supported any more oc your free to do whatever you want but mind you can easily update from one lts to the next __eot__ the openvz kernel dont run right on 11.10 or 10.04 . but it runs good on 12.04lts but its a pain to install and get going . __eot__ i never used openvz but other virtualization that did fine throughout releases try another virtualization or is there something not offered by other solutions alright then i would suggested xen or vbox where the latter is not that small in footprint but i got to stop as i have no experience with openvz yes but has nice interfaces and oc you can have it console style too then landing in a landscape as hard to configure you can once use the xen i found some info i lacked yes as my router is down i put some shielding so what about using a todays distro with an older kernel then as far as i can see it is just about kernel i have a lucid vm here i can crash trying to install 2.6.32 now brb it is the next lts so you could go there in one step but give a few minutes now __eot__ get it working __eot__ i think so it is still insttalling least i also found some openvztools in standard repo so i doupt if they are there openvz cannot be used yes kernel 2.6.32-21 boots with no problem also there is a metapackage linux-preempt which will ensure that upgrades work
+RESP: thats the hard way .
+
+── Pair 189 ──────────────────────────────────────────────────
+CTX : hi friends i am using ubuntu 12.4 . i want to bring my launcher at bottom when i am trying following code sudo apt-get install unityshell-rotated libnux-1.0-0 compizconfig-settings-manager' its showing unable to locate package hello
+RESP: that ppa only has a build for oneiric as far as i know nobody updated it for 12.04
+
+── Pair 190 ──────────────────────────────────────────────────
+CTX : ok so im showing a webrick in my processes . however killall webrick . says webrick no process found' am i missing something to kill this process __eot__ try this ps -aux grep webrick' it should give oyu the process id then type sudo kill -9 id_number_here' thats the process id that you just ran trying to identify webrick are you certain the process name is webrick or atleast contains that word in it its also case sensitive
+RESP: so ive got a web server of the type webrick . which is currently hogging port 3000
+
+── Pair 191 ──────────────────────────────────────────────────
+CTX : what driver did the thingy' install the thingy is jockey' __eot__ good question i think it did say something but i do not recall exactly something with nvidia-current-experimental or updates unity does not come up at the moment so i cannot check gets stuck on empty desktop after login checking apt's logs amd64 is what it installed it seems i did install something nvidia related from the terminal before let me just paste the log entries hang on __url__ the entry from 03 44 is from jockey i think the other things i did from the terminal myself module build for the currently running kernel was skipped since the kernel source for this kernel does not seem to be installed.' i guess that is the problem i guess jockey normally takes care of that but i messed things up by manually running apt-get p __eot__ headers are not installed by default __eot__ i did get a kernel update too i guess i have 3.5.0-17-generic and 3.5.0-18-generic installed __eot__ look at the man' for dkms i forget which option is for status' if dkms is seeing your nvidia module your problems are solved as far as kernel updates __eot__ dkms status 304.48 added though modprobe nvidia' says the module was not found __eot__ cool __eot__ xorg log contains an error too from nvidia_drv.so not finding the kernel module
+RESP: install inxi' and then run inxi -g
+
+── Pair 192 ──────────────────────────────────────────────────
+CTX : perhaps sudo touch __path__ __eot__ did that mate and nothing happened __eot__ look on the flash and see if the file is there . __eot__ it is not there __eot__ what was the exact command you used __eot__ sudo touch __path__ __eot__ its very possible that cdrom is mounted read only . the mount command may show you . __eot__ can you tell me the full mount command please i am sorry i am a complete linux noob
+RESP: just mount' shows whats mounted where
+
+── Pair 193 ──────────────────────────────────────────────────
+CTX : hi guys i do come her with questions hahahaha somebody knows how to install iceweasel on ubuntu
+RESP: find a ppa for it if ita not in the repos
+
+── Pair 194 ──────────────────────────────────────────────────
+CTX : what is the output of service mysql status'
+RESP: it does not say anything at all
+
+── Pair 195 ──────────────────────────────────────────────────
+CTX : i have problem with my internet connection __eot__ what is it or perhaps you are typing that now . __eot__ how do i configure internet i made mistakes using pppoeconf and now its taking more time to connect . i am on ubuntu 12.04 lts __eot__ are you using dialup __eot__ i want default internet connection for my comp . provided by gui at right top of desk i have to enter username pass for connecting to web __eot__ you are being to vague . please layout exactly what is going on . __eot__ internet configuration that i make with vpn connetion - configure vpn should work and nothing else .
+RESP: i cannot help with vpn .
+
+── Pair 196 ──────────────────────────────────────────────────
+CTX : __user__ i am poking around right now to see if i can track it down __eot__ ok . i used loadkeys us' to change the layout to the keyboard i am using now . but i got curious . __eot__ ya i am not sure sorry __eot__ thx anyway __eot__ if you wanna be hardcore use strace' to see where it is loading files from __eot__ how would i do that is it as simples as trace command i think i found it . __path__ although i do not have the x system installed there seems to be a x11 folder . __eot__ you can check what package provides that with dpkg -s __path__ __eot__ it is xkb-data running an strace could strace break the argument command
+RESP: it shouldn't try quoting the command after strace'
+
+── Pair 197 ──────────────────────────────────────────────────
+CTX : how do i delete a network interface using the ip or ifconfig tools __eot__ why not just disable it __eot__ it is a temporary monitor interface from wireshark said it could not remove and to do so manually __eot__ i think wireshark needs an interface ip in order to work __eot__ well yeah i am done using wireshark though and want to remove this leftover interface
+RESP: left over interface you are getting problems when trying to scan wlan0
+
+── Pair 198 ──────────────────────────────────────────────────
+CTX : installed correctly now in lfs __eot__ lfs i am not using lfs . this is just a dependency specification problem . it is a bug in ubuntu . __eot__ nope . how did you install it in the first place __eot__ because i was using the version of php suitable for some preforking version of apache . __eot__ so you did not install php5-pgsql __eot__ it should simply make it impossible to configure it wrong . i did install that . __eot__ your distro and php version __eot__ precise and whatever php is distributed with precise .
+RESP: that is rubbish as the modules are not installed in that directory
+
+── Pair 199 ──────────────────────────────────────────────────
+CTX : is there an easy way to automatically remove stuff from trash which has been there for longer than x days if it is bigger than y bits or megabytes rather but does not matter __eot__ you can delete without ever putting stuff there if you want easily . __eot__ i know but i like being able to undo stuff i just do not want it to waste too much space on my harddrive . __eot__ one could probably write a script to do this but it would seem easier to just pay attention and also realize that you should not have your hd more then about 70 full to run optimally .
+RESP: i found something called autotrash' in the repo trying it right now . i do not want to pay attention i am lazy .
+
+── Pair 200 ──────────────────────────────────────────────────
+CTX : than i make sudo-apt get install nodejs npm will i get both packages from the ppa or will be 1 from the ppa and another from official ubuntu repo __eot__ apt-cache policy package_name will tell you where the updated package will come from
+RESP: if i install a ppa such as __url__ how do icheck command
+

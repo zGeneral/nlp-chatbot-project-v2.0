@@ -1,368 +1,390 @@
-# Training Methodology & Design
+# Training Methodology
 
-*MSc AI Final Project — Seq2Seq LSTM Chatbot on Ubuntu Dialogue Corpus*
-
----
-
-## Overview
-
-This project trains a Sequence-to-Sequence (Seq2Seq) chatbot on the Ubuntu Dialogue
-Corpus — a dataset of multi-turn IRC technical support conversations. Two model variants
-are trained and compared:
-
-- **Baseline** — Bidirectional LSTM encoder with unidirectional LSTM decoder, no attention
-- **Attention** — Identical architecture with Bahdanau (additive) attention added
-
-The purpose is an ablation study: quantifying the contribution of the attention mechanism
-to response quality on a realistic open-domain technical dialogue task.
-
-### Reference Benchmark
-
-The directional benchmark is the osamadev Seq2Seq chatbot implementation:
-
-| Metric | osamadev (reference) | Notes |
-|---|---|---|
-| BLEU-1 | 0.4400 | LSTM + attention, 8k SentencePiece vocab, greedy |
-| BLEU-4 | 0.1386 | |
-| ROUGE-L F1 | 0.0922 | |
-
-> **Important:** Direct numeric comparison is invalid. The reference uses an 8k vocabulary,
-> a different tokeniser, and a different data split. It serves as a directional sanity check
-> only and should be cited with this disclaimer in any write-up (Liu et al., 2016 note on
-> metric reliability in open-domain dialogue).
+Both models (baseline and attention) are trained with identical
+hyperparameters on the same 1 103 539 pair dataset, ensuring that any
+performance difference isolates the architectural contribution of
+attention rather than training regime differences.
 
 ---
 
-## Architecture
+## Hardware & Runtime
 
-### 1. Encoder — Bidirectional LSTM
-
-```
-Input tokens  →  Embedding(16000, 300)  →  BiLSTM(hidden=512, layers=2)
-                                            → output [B, T, 1024]
-                                            → final hidden [2×layers, B, 512]
-                                            → final cell   [2×layers, B, 512]
-```
-
-The encoder is **bidirectional**: each token is encoded with both left-to-right and
-right-to-left context. This is critical for dialogue because meaning is not strictly
-causal — "I **can't** install it" requires the word after "can't" to fully disambiguate
-the sentiment.
-
-- **Hidden dim:** 512 per direction → 1024 effective (concatenated)
-- **Layers:** 2 stacked LSTM layers for hierarchical feature extraction
-- **LSTM over GRU:** LSTM has an explicit cell state in addition to the hidden state,
-  giving it a dedicated long-term memory path. For multi-turn dialogue where early
-  context turns must influence late decoder steps, the cell state provides an additional
-  gradient highway that helps preserve information across long sequences.
-
-### 2. Encoder–Decoder Bridge
-
-```
-BiLSTM final hidden [2*layers, B, 512]  →  Linear(1024 → 1024)  →  decoder init [layers, B, 1024]
-BiLSTM final cell   [2*layers, B, 512]  →  Linear(1024 → 1024)  →  decoder cell  [layers, B, 1024]
-```
-
-The encoder output is bidirectional (1024-dim) but the decoder is unidirectional (1024-dim).
-The bridge is a learned linear projection that maps the concatenated forward+backward final
-hidden (and cell) states into the decoder's initial hidden (and cell) state. Without this,
-the dimension mismatch would prevent the encoder state from initialising the decoder.
-
-### 3. Shared Embedding (Weight Tying)
-
-Both the encoder and decoder use the **exact same `nn.Embedding` object**. This is not two
-copies — it is the same Python object passed to both components.
-
-Benefits:
-- **Parameter reduction:** Saves vocab_size × embed_dim = 16,000 × 300 = 4.8M parameters
-- **Consistency:** Token representations are forced to be the same whether the model is
-  reading input or generating output
-- **Regularisation:** Shared weights reduce the risk of the encoder and decoder developing
-  incompatible token spaces
-
-This is standard practice for single-language Seq2Seq tasks where the input and output
-vocabulary are identical.
-
-### 4. Pretrained FastText Embeddings
-
-Rather than random initialisation, the embedding matrix is pre-populated with FastText
-skip-gram vectors trained on the Ubuntu corpus itself.
-
-```
-stage8_embedding_matrix.npy  →  nn.Embedding(16000, 300, padding_idx=0)
-```
-
-- **Why domain-specific?** Generic pretrained embeddings (GloVe, Word2Vec) do not know
-  that `sudo`, `apt`, `kernel`, and `ubuntu` form a semantic cluster. Training on the
-  Ubuntu corpus gives the embedding meaningful geometry from the start.
-- **Freeze=False:** Embeddings are fine-tuned during training, allowing the Seq2Seq task
-  to adapt the FastText initialisations to the dialogue response objective.
-- **Pad row zeroed:** Row 0 (`<pad>`) is explicitly zeroed and receives no gradient
-  via `padding_idx=0`.
-- **Coverage:** 99.994% of vocabulary rows are non-zero (1 zero row = pad only).
-
-**Initialisation data scope and mild leakage note:**
-FastText is trained on the full corpus (train + validation + test combined) to ensure
-complete vocabulary coverage — validation and test splits may contain tokens not present
-in training dialogue pairs. Because `freeze=False`, these initial vectors are fine-tuned
-during the Seq2Seq training phase; the embedding weight at epoch 1 still carries
-co-occurrence statistics derived from val/test text, but this signal is progressively
-overwritten across subsequent epochs. The contamination is limited in scope: FastText
-learns token co-occurrence geometry (e.g. that `wireless` and `router` are semantically
-proximate), not dialogue response structure or the specific responses in val/test. This
-is a standard trade-off in domain-specific NLP systems and is consistent with practices
-in the Ubuntu Dialogue Corpus literature (Lowe et al., 2015). It is acknowledged here
-in the interest of full methodological transparency.
-
-### 5. Attention Mechanism (Bahdanau / Additive)
-
-The attention model adds a context-sensitive weighting over encoder outputs at each
-decoder step.
-
-**Score function:**
-```
-e(s, h_i) = v · tanh(W1 · s  +  W2 · h_i)
-```
-where `s` is the current decoder hidden state, `h_i` is the i-th encoder output,
-`W1 ∈ R^{attn_dim × dec_hidden}`, `W2 ∈ R^{attn_dim × enc_hidden}`, `v ∈ R^{attn_dim}`.
-
-**Attention weights:**
-```
-α_i = softmax(e_i)     over all encoder positions i
-```
-
-**Context vector:**
-```
-c = Σ_i  α_i · h_i     (weighted sum of encoder outputs)
-```
-
-The attention dimension is 256. Padding positions in the encoder output are masked to
-`-inf` before softmax, ensuring they contribute zero to the context vector.
-
-**Rationale:** In multi-turn IRC dialogue, relevant context can span several turns.
-A context sequence like "how do I install X? → tried Y → still broken → what command?"
-requires the decoder to attend to "install X" when generating the first response token,
-not just the most recent encoder state.
-
-### 6. Decoder Input — Luong Input Feeding
-
-```
-decoder_input = concat(embed(prev_token), context_prev)
-              = [300-dim ; 1024-dim]
-              = 1324-dim LSTM input
-```
-
-At each decoder step, the previous step's context vector is concatenated with the current
-token embedding before feeding the LSTM. This is the Luong input-feeding trick: it carries
-"what I was attending to last step" forward, giving the decoder memory of its own
-attention history. Without this, the attention must independently re-discover the correct
-alignment from scratch every step.
-
----
-
-## Training Procedure
-
-### 7. Teacher Forcing Schedule
-
-Teacher forcing controls what token the decoder receives as input at step t:
-- **TF=1.0:** Always use the gold (ground-truth) token from the reference sequence
-- **TF=0.0:** Always use the model's own previous prediction (free-running)
-
-```
-Epochs  1–15:  TF = 1.0   (full teacher forcing)
-Epochs 16–18:  TF = 0.8   (20% exposure to own predictions)
-Epochs 19–20:  TF = 0.5   (half free-running)
-```
-
-**Rationale:**
-
-*Phase 1 (TF=1.0):* Training is stable because the decoder always receives correct context.
-The encoder, bridge, and embedding learn quickly without compounding errors. Gradients are
-clean and informative.
-
-*Phase 2–3 (TF decay):* At inference time there is no gold token — the model feeds its own
-outputs. Training only with TF=1.0 causes **exposure bias**: the model has never seen its
-own mistakes during training, so small errors at inference compound rapidly. Gradually
-reducing TF closes this gap without destabilising early training.
-
-*Why not decay earlier?* Rushing the reduction wastes the high-quality gradient signal
-from the first 15 epochs. The model needs to first learn a reasonable output distribution
-before it can benefit from self-feeding.
-
-### 8. Loss Function
-
-```python
-CrossEntropyLoss(ignore_index=pad_idx, label_smoothing=0.0)
-```
-
-- **Ignore pad:** Padding positions contribute zero loss — the model is not penalised for
-  what it predicts at pad positions.
-- **Label smoothing = OFF:** With TF=1.0, targets are perfect gold tokens. Smoothing would
-  add uncertainty to tokens the model should confidently learn, reducing signal quality.
-  Smoothing is more appropriate with noisy targets or scheduled sampling.
-
-### 9. Optimiser
-
-```python
-AdamW(lr=3e-4, weight_decay=1e-5)
-```
-
-- **AdamW:** Adam with decoupled weight decay. Standard choice for NLP tasks — adaptive
-  learning rates per parameter, weight decay as proper L2 regularisation (not mixed into
-  the moment estimates as in vanilla Adam).
-- **LR = 3e-4:** Standard starting point for AdamW on sequence models with this parameter
-  count. Conservative enough to avoid early divergence, fast enough to converge in 20 epochs.
-- **Weight decay = 1e-5:** Light regularisation. Seq2Seq models can overfit the most
-  frequent response patterns; weight decay discourages this without restricting capacity.
-
-### 10. Learning Rate Scheduling
-
-```python
-ReduceLROnPlateau(patience=3, factor=0.5, monitor=val_loss)
-```
-
-The LR is halved when validation loss does not improve for 3 consecutive epochs. This
-allows the model to fine-tune after the initial learning plateau without manually tuning
-a LR schedule. With 20 training epochs, this can fire 2–3 times, bringing the effective
-LR from 3e-4 down to ~3.75e-5 by the end of training.
-
-### 11. Gradient Clipping
-
-```python
-clip_grad_norm_(parameters, max_norm=1.0)
-```
-
-Applied after each backward pass (or after gradient accumulation). LSTMs can exhibit
-gradient explosion on long sequences — the Ubuntu context can be up to 100 tokens. Clipping
-at 1.0 is gentle: it rescales the gradient vector when its L2 norm exceeds 1.0, preserving
-gradient direction while preventing catastrophic weight updates.
-
-### 12. Gradient Accumulation
-
-```python
-grad_accum_steps = 2   # full training
-grad_accum_steps = 1   # mini training
-```
-
-With batch_size=256 and grad_accum_steps=2, the effective batch size is 512 per parameter
-update. This simulates a larger batch without requiring proportionally more GPU memory.
-Loss is scaled by `1/grad_accum_steps` per sub-batch so that gradients are equivalent to
-computing on the full effective batch.
-
-### 13. Mixed Precision Training
-
-```python
-# config.py
-"amp_dtype": "bfloat16"
-
-# train.py — read from config, not hardcoded
-_amp_dtype = getattr(torch, config.get("amp_dtype", "bfloat16"))
-torch.amp.autocast(device_type="cuda", dtype=_amp_dtype)
-```
-
-Forward passes and loss computation run in bfloat16. bfloat16 is preferred over float16
-for training because it has the same exponent range as float32 (8 bits vs 5 bits in
-float16), making it far less prone to overflow during gradient computation. The embedding
-The embedding matrix and LSTM parameters remain in float32 for numerical stability.
-
----
-
-## Checkpoint Strategy
-
-Every epoch where validation loss improves, a full checkpoint is saved atomically
-(write to `.tmp`, then `os.replace` to avoid corrupt checkpoints on crash):
-
-```
-{model_type}_best.pt   ← lowest val_loss ever seen
-{model_type}_last.pt   ← most recent epoch (for Colab/Windows resume)
-```
-
-On the next run, the training loop prefers `_last.pt` (most recent state) over `_best.pt`
-to avoid silently discarding training progress on resume.
-
-Each checkpoint stores:
-- `model_state_dict` — weights
-- `optimizer_state` / `scheduler_state` — resume exact optimiser momentum
-- `history` — full train/val loss curve for plotting
-- `git_hash` — exact code version that produced this checkpoint
-- `config` — full hyperparameter snapshot for reproducibility
-
----
-
-## Mini Training (Sanity Check)
-
-Before committing to a multi-hour full training run, `train_mini.py` runs the identical
-training loop on a subset of the mini pipeline output:
-
-| Setting | Mini | Full |
-|---|---|---|
-| Training pairs | 50,000 (of 150k available) | ~500k+ |
-| Max epochs | 20 | 20 |
-| Early stopping patience | 5 epochs | disabled |
-| Batch size | 64 | 256 |
-| Grad accumulation | 1 | 2 |
-| Artifact dir | `artifacts_mini/` | `artifacts/` |
-| Checkpoint dir | `checkpoints_mini/` | `checkpoints/` |
-
-The mini run answers: **does the model learn at all, or is it collapsing?**
-
-After training, `evaluate_mini.py` runs automatically and produces a three-layer analysis:
-
-- **Layer 1 (automatic):** BLEU-1/2/4, Distinct-1/2, UNK rate, empty response rate
-- **Layer 2 (structural):** Top-20 most-generated responses, response length histogram,
-  novel-word ratio (collapse detector)
-- **Layer 3 (samples):** 30 decoded `CTX → BASELINE | ATTENTION | GOLD` pairs
-
-**Verdict criteria:**
-
-| Verdict | Trigger |
+| Item | Value |
 |---|---|
-| ✅ HEALTHY | All checks pass |
-| ⚠️ COLLAPSE | Top-1 response > 20% of outputs, or >30% empty responses |
-| ⚠️ NOT LEARNING | BLEU-1 < 0.05, or val_loss still near ln(vocab_size)=9.68 |
-| ⚠️ OVERFIT | val_loss − train_loss > 0.5 |
+| GPU | NVIDIA GeForce RTX 3080 12 GB (Ampere, CC 8.6) |
+| Precision | bfloat16 (AMP via `torch.amp.autocast`) |
+| Peak GPU memory | 5.42 GB / 12 GB |
+| Effective batch | 256 × 2 accumulation steps = **512** |
+| Epoch duration | ~11 min · 20 epochs · 2 models ≈ **~7.5 hours** |
 
 ---
 
-## Early Stopping — Implementation Note
+## Configuration Reference
 
-Early stopping uses a `_improved` boolean captured **before** `best_val_loss` is updated.
-This avoids an off-by-one bug where `val_loss < best_val_loss` always evaluates to `False`
-after the update (they are equal). The counter resets to 0 on any improvement; training
-halts when `_no_improve >= patience`.
-
-Early stopping is **disabled** (patience=0) for full training — the LR scheduler handles
-plateau adaptation instead.
+| Hyperparameter | Value | Key |
+|---|---|---|
+| Optimizer | AdamW | — |
+| Peak LR | 3e-4 | `learning_rate` |
+| Weight decay | 1e-5 | `weight_decay` |
+| Adam β₁, β₂, ε | 0.9, 0.999, 1e-8 | (PyTorch defaults) |
+| LR scheduler | ReduceLROnPlateau | — |
+| Scheduler factor | 0.5 | `lr_scheduler_factor` |
+| Scheduler patience | 3 epochs | `lr_scheduler_patience` |
+| Minimum LR | 1e-5 | `lr_min` |
+| Loss function | CrossEntropyLoss | — |
+| Label smoothing | 0.0 (off) | `label_smoothing` |
+| Pad ignore index | 0 | `pad_idx` |
+| Gradient clip | max_norm = 1.0 (L2) | `max_grad_norm` |
+| Grad accumulation | 2 steps | `grad_accum_steps` |
+| Epochs | 20 | `num_epochs` |
+| Batch size | 256 | `batch_size` |
+| DataLoader workers | 4 | `num_workers` |
+| Early stopping | patience = 4 | `patience` |
+| Seed | 42 | `seed` |
 
 ---
 
-## Key Design Choices vs Reference Benchmark
+## Training Loop Overview
 
-| Choice | This project | osamadev reference | Reason |
+```
++- EPOCH LOOP (1 -> 20) -----------------------------------------------------+
+|                                                                             |
+|  tf_ratio  <-  get_tf_ratio(epoch)   (see Appendix A)                     |
+|  optimizer.zero_grad()                                                      |
+|                                                                             |
+|  +- BATCH LOOP --------------------------------------------------------+   |
+|  |                                                                      |   |
+|  |  with autocast(cuda, bf16):                                         |   |
+|  |      logits = model(src, src_len, trg, tf_ratio)                   |   |
+|  |      loss   = CrossEntropyLoss(logits, trg[:,1:])  <- pad masked   |   |
+|  |                                                                      |   |
+|  |  if loss is NaN -> zero_grad, skip batch        <- NaN guard       |   |
+|  |                                                                      |   |
+|  |  (loss / accum_steps).backward()               <- scale grad       |   |
+|  |                                                                      |   |
+|  |  if (step % 2 == 0) or last_batch:                                 |   |
+|  |      clip_grad_norm_(model, max_norm=1.0)                          |   |
+|  |      if grad_norm is NaN -> zero_grad, skip step                   |   |
+|  |      optimizer.step()                                               |   |
+|  |      optimizer.zero_grad(set_to_none=True)                         |   |
+|  |      if global_step % 2000 == 0 -> save step checkpoint            |   |
+|  |                                                                      |   |
+|  +----------------------------------------------------------------------+   |
+|                                                                             |
+|  val_loss <- evaluate(model, val_loader, tf=0.0)   <- no TF in val        |
+|  scheduler.step(val_loss)                          <- may halve LR        |
+|                                                                             |
+|  if epoch == 6: reset best_val_loss, no_improve    <- Phase 2 reset       |
+|  if val_loss < best -> save best.pt                                        |
+|  else: no_improve += 1; if >= 4 -> early stop                             |
+|  save last.pt  (always)                            <- resume guard        |
+|                                                                             |
++-----------------------------------------------------------------------------+
+```
+
+---
+
+## Optimiser & Regularisation
+
+**AdamW** is used with peak LR 3e-4, no warm-up. Weight decay (1e-5) is
+applied via AdamW's decoupled L2 penalty rather than standard Adam's
+gradient coupling, preventing decay from distorting the adaptive
+learning rate estimates. Gradient clipping (max_norm = 1.0) prevents
+exploding gradients common in deep RNNs.
+
+**ReduceLROnPlateau** halves the learning rate after 3 consecutive
+epochs of non-improving validation loss, with a floor of 1e-5. The
+scheduler is called once per epoch after validation.
+
+---
+
+# Appendix
+
+## A. Teacher Forcing Schedule
+
+Teacher forcing (TF) controls how much the decoder relies on
+ground-truth tokens as inputs during training. At TF = 1.0 the decoder
+always receives the correct previous token; at TF = 0.0 it uses its
+own previous prediction (autoregressive / free-running).
+
+### A.1 Three-Phase Schedule
+
+```
+TF
+1.0 |*-----*
+    |       \  Phase 2: linear decay 0.9->0.5
+0.9 |        *
+    |         \
+0.7 |          *
+    |            \
+0.5 |             *-----------* Phase 3: floor
+    +---------------------------------- epoch
+      1  2  3  4  5  6  7  8  9 10 11 12 13 14 ... 20
+      |<-- Phase 1 -->|<---- Phase 2 ---->|<-- Phase 3 -->|
+```
+
+| Phase | Epochs | TF Ratio | Purpose |
 |---|---|---|---|
-| Encoder | Bidirectional LSTM | Bidirectional LSTM | Same mechanism; LSTM chosen for cell-state memory |
-| Vocab size | 16,000 BPE | 8,000 SentencePiece | More coverage, fewer `<unk>` |
-| Embedding init | FastText domain-specific | Random | Better geometry from the start |
-| Weight tying | Yes | Not specified | Reduces params, regularises |
-| Teacher forcing | Staged schedule | Fixed | Closes exposure bias gap |
-| Label smoothing | OFF | Not specified | Clean signal with TF=1.0 |
-| Mixed precision | bfloat16 | Not used | ~2× training speed |
-| Attention | Bahdanau additive | Bahdanau | Same mechanism |
+| 1 | 1 - 5 | 1.00 (fixed) | Stable early convergence with full supervision |
+| 2 | 6 - 12 | 0.90 -> 0.50 (linear) | Gradually shift to free-running; close exposure bias |
+| 3 | 13 - 20 | 0.50 (fixed floor) | Half ground-truth, half autoregressive |
+
+### A.2 Phase 2 Interpolation Formula
+
+```
+tf(epoch) = 0.9 - (epoch - 6) x (0.4 / 6)
+```
+
+| Epoch | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+|---|---|---|---|---|---|---|---|
+| TF | 0.900 | 0.833 | 0.767 | 0.700 | 0.633 | 0.567 | 0.500 |
+
+### A.3 Sampling Behaviour
+
+TF ratio is computed once per epoch and applied **per token**
+stochastically inside the decoder's forward pass:
+
+```
+use_teacher = random() < teacher_forcing_ratio
+decoder_input = trg[t]  if use_teacher  else  top1_prediction
+```
+
+This means within a single batch, some tokens receive ground-truth
+input and others receive the model's own prediction — creating a
+mixed-supervision signal that smooths the transition.
 
 ---
 
-## References
+## B. Gradient Accumulation & Mixed Precision
 
-1. Sutskever, I., Vinyals, O., & Le, Q. V. (2014). Sequence to sequence learning with
-   neural networks. *NeurIPS*.
-2. Bahdanau, D., Cho, K., & Bengio, Y. (2015). Neural machine translation by jointly
-   learning to align and translate. *ICLR*.
-3. Lowe, R., et al. (2015). The Ubuntu Dialogue Corpus. *SIGDIAL*.
-4. Liu, C. W., et al. (2016). How NOT to evaluate your dialogue system. *EMNLP*.
-   *(On the limitations of BLEU for open-domain dialogue evaluation.)*
-5. Cho, K., et al. (2014). Learning phrase representations using RNN encoder-decoder
-   for statistical machine translation. *EMNLP*. *(Original RNN encoder-decoder paper.)*
-6. Hochreiter, S., & Schmidhuber, J. (1997). Long short-term memory. *Neural Computation*.
-   *(LSTM paper.)*
-6. Loshchilov, I., & Hutter, F. (2019). Decoupled weight decay regularization. *ICLR*.
-   *(AdamW.)*
+### B.1 Effective Batch Construction
+
+Physical batch size is constrained by GPU VRAM. Two accumulation steps
+double the effective batch without exceeding memory:
+
+```
+Batch 0 --> forward -> (loss/2).backward()  <- gradients accumulate
+Batch 1 --> forward -> (loss/2).backward()  <- gradients accumulate
+             clip -> optimizer.step() -> zero_grad
+             effective batch = 256 x 2 = 512 samples
+```
+
+Loss is divided by `grad_accum_steps = 2` before `.backward()` so
+accumulated gradients equal the mean over 512 samples. The unscaled
+loss is used for all logging and reporting.
+
+### B.2 bfloat16 vs float16
+
+bfloat16 (bf16) is chosen over fp16 for three reasons:
+
+| Property | bf16 | fp16 |
+|---|---|---|
+| Exponent bits | 8 (same as fp32) | 5 |
+| Mantissa bits | 7 | 10 |
+| Dynamic range | Same as fp32 | 65504 max |
+| Underflow risk | Very low | High (needs GradScaler) |
+| Ampere support | Native (TF32 path) | Supported |
+
+bf16's wider dynamic range eliminates the need for a `GradScaler`.
+`torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)` wraps
+both forward pass and loss computation; the backward pass and
+optimizer step run in fp32 automatically.
+
+---
+
+## C. LR Scheduling & Early Stopping
+
+### C.1 ReduceLROnPlateau Mechanics
+
+```
+Epoch    Val Loss    Plateau ctr   LR
+------------------------------------------
+  1       7.44          0         3.0e-4  <- new best
+  2       7.70          1         3.0e-4
+  3       7.79          2         3.0e-4
+  4       7.82          3         3.0e-4  <- patience hit -> LR x0.5
+  5       7.83          4         1.5e-4  <- LR halved
+  6  [Phase 2 reset: best_val_loss = inf, no_improve = 0]
+  ...
+```
+
+The plateau counter resets to 0 whenever a new best validation loss is
+found. Min LR floor of 1e-5 prevents the scheduler from reducing LR
+below a useful training signal.
+
+### C.2 Phase 2 Counter Reset Rationale
+
+At epoch 6, both `best_val_loss` and the early-stopping `no_improve`
+counter are reset to their initial values. Without this reset, the
+early stopping counter from Phase 1 (where TF=1.0 creates artificially
+easy training, inflating the train-val gap) would carry over and
+potentially terminate training before Phase 2 can reduce the exposure
+bias. The reset grants Phase 2 its own independent convergence window.
+
+### C.3 Early Stopping Timeline
+
+```
+Phase 1 (ep 1-5):  early stopping DISABLED (counter not checked)
+Phase 2+ (ep 6+):  counter active
+
+     best found -> counter = 0
+     no improve  -> counter + 1
+     counter >= 4 -> training halted, best.pt already saved
+```
+
+---
+
+## D. Formal Equations
+
+### D.1 AdamW Update Rule
+
+```
+m_t = B1*m_(t-1) + (1-B1)*g_t
+v_t = B2*v_(t-1) + (1-B2)*g_t^2
+m_hat = m_t / (1-B1^t),  v_hat = v_t / (1-B2^t)
+theta_t = theta_(t-1) - lr * ( m_hat / (sqrt(v_hat)+eps) + lambda*theta_(t-1) )
+```
+
+Parameters: lr=3e-4, B1=0.9, B2=0.999, eps=1e-8, lambda=1e-5.
+The weight decay term lambda*theta is applied **after** the adaptive
+step (decoupled), unlike standard Adam where decay is folded into the
+gradient.
+
+### D.2 Gradient Clipping
+
+```
+g_clipped = g                    if ||g||_2 <= 1.0
+            g / ||g||_2          if ||g||_2 >  1.0
+```
+
+Clipping is applied to the concatenated parameter vector across all
+model parameters before each `optimizer.step()`.
+
+### D.3 Training Loss (with gradient accumulation)
+
+```
+L_batch = - (1/|T|) * sum_{t in T} log p(y_t | y_<t, X)
+```
+
+where T excludes padding positions. For A=2 accumulation steps,
+backward receives L_batch/A so accumulated gradients equal the mean
+over the full effective batch.
+
+### D.4 Perplexity
+
+```
+PPL = exp( min(L_val, 20) )
+```
+
+The cap at 20 prevents numerical overflow when the model diverges
+early in training (PPL would otherwise exceed 485 million at
+val_loss=20).
+
+---
+
+## E. Checkpoint Strategy
+
+Three complementary checkpoints are maintained throughout training:
+
+| Type | Filename | Trigger | Purpose |
+|---|---|---|---|
+| **Best** | `{model}_best.pt` | Val loss improves | Production model; used for evaluation |
+| **Step** | `{model}_step_{n}.pt` | Every 2 000 opt steps | Mid-epoch recovery; fine-grained audit |
+| **Last** | `{model}_last.pt` | Every epoch end | Resume after disconnect/crash |
+
+### E.1 Best Checkpoint Contents
+
+```
+epoch, global_step, model_type
+model_state_dict           <- weights
+optimizer_state            <- Adam moment buffers
+scheduler_state            <- plateau counter & LR state
+val_loss, val_ppl
+train_loss, tf_ratio
+config                     <- full hyperparameter dict
+history                    <- per-epoch loss/LR/grad arrays
+git_hash, torch_version, run_timestamp
+```
+
+### E.2 Resume Logic
+
+On restart, `last.pt` is preferred over `best.pt` to avoid silently
+discarding epochs completed after the last best checkpoint. The
+scheduler state is **not** restored — the current LR is read directly
+from `optimizer.param_groups` to avoid scheduler reset artefacts.
+
+---
+
+## F. Glossary
+
+| Term | Definition |
+|---|---|
+| **AdamW** | Adam with decoupled weight decay (Loshchilov & Hutter, 2019); prevents weight decay from distorting adaptive LR estimates |
+| **Teacher forcing** | Feeding the ground-truth previous token as decoder input during training; speeds convergence but causes exposure bias |
+| **Exposure bias** | Train/inference mismatch: model conditioned on gold tokens during training but its own outputs at inference |
+| **Gradient accumulation** | Summing gradients over multiple forward passes before an optimizer step; simulates a larger effective batch without extra VRAM |
+| **ReduceLROnPlateau** | LR scheduler that halves the learning rate when a monitored metric stops improving for `patience` epochs |
+| **bfloat16 (bf16)** | 16-bit float with 8 exponent bits (same as fp32); preserves dynamic range, eliminating the need for a GradScaler |
+| **GradScaler** | PyTorch utility that scales loss to prevent fp16 underflow; not needed with bf16 |
+| **Gradient clipping** | Rescaling the gradient vector to L2-norm <= max_norm; prevents exploding gradients in deep RNNs |
+| **PPL (Perplexity)** | exp(cross-entropy loss); lower is better; indicates how many equally likely tokens the model considers at each step |
+| **Early stopping** | Halting training when validation loss fails to improve for `patience` consecutive epochs |
+| **best.pt / last.pt** | Best = saved on val improvement (production model); last = saved every epoch (resume guard) |
+| **Phase 2 reset** | At epoch 6, best_val_loss and no_improve counter reset to allow Phase 2 its own convergence window |
+| **TF floor** | Minimum teacher forcing ratio (0.5) held fixed in Phase 3 |
+| **Effective batch size** | Physical batch x accumulation steps; determines gradient noise and convergence behaviour |
+| **NaN guard** | Per-batch check: if loss or grad_norm is non-finite, the batch is skipped without updating weights |
+
+---
+
+## G. Design Decisions and Rationale
+
+**Why AdamW and not Adam?**
+Standard Adam applies L2 weight decay by adding it to the gradient,
+which interferes with the per-parameter adaptive learning rate scale.
+AdamW applies decay directly to the weights (decoupled), making the
+regularisation effect predictable regardless of gradient magnitude.
+At weight_decay = 1e-5 this is a light constraint, but the decoupled
+form avoids underdecaying large-gradient parameters (embeddings) and
+overdecaying small-gradient ones (output layer).
+
+**Why no learning rate warm-up?**
+Warm-up is most beneficial for Transformers, where large initial
+updates to attention weights can destabilise training. LSTM models are
+less sensitive — the recurrent inductive bias and orthogonal weight
+init provide natural stability from step 1. Adding warm-up would
+introduce an additional hyperparameter with minimal expected benefit.
+
+**Why ReduceLROnPlateau and not cosine annealing?**
+Cosine annealing decays LR on a fixed schedule regardless of whether
+the model is still improving. ReduceLROnPlateau is adaptive: it only
+reduces LR when validation loss genuinely stalls. Given the 3-phase
+teacher forcing schedule (which itself causes planned transitions in
+loss behaviour), a fixed cosine schedule would require careful
+alignment with TF phase boundaries. ReduceLROnPlateau handles this
+automatically.
+
+**Why label smoothing = 0.0 (disabled)?**
+Label smoothing encourages the model to assign some probability to all
+vocabulary tokens, reducing overconfidence. In this experiment,
+teacher forcing ratio already acts as curriculum regularisation. At
+TF = 0.5 in Phase 3 the model already faces a harder, noisier
+objective. Enabling smoothing simultaneously would confound two
+regularisation strategies, making ablation analysis ambiguous. It is
+reserved as a separate ablation.
+
+**Why greedy decoding at validation and not beam search?**
+Beam search is a decoding strategy, not a training objective. At
+validation time, the goal is a fast, consistent generalisation signal,
+not optimal output quality. Greedy decoding is deterministic, fast,
+and produces a consistent lower bound epoch-to-epoch. Beam search is
+applied only at final evaluation and inference.
+
+**Why bf16 and not fp32 or fp16?**
+fp32 would consume ~2x the VRAM and compute for marginal quality
+benefit at this model size. fp16 requires a GradScaler to prevent
+underflow. bf16 offers identical dynamic range to fp32 (8 exponent
+bits) with half the memory footprint, and is natively accelerated on
+Ampere hardware (RTX 3080 CC 8.6). The only trade-off is slightly
+lower mantissa precision (7 vs 23 bits), which is negligible for
+gradient descent.
