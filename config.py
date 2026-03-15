@@ -211,11 +211,11 @@ def get_a100_overrides() -> dict:
     These replace the conservative defaults in CONFIG, which were chosen for
     local consumer-GPU testing. Key rationale:
 
-      batch_size=2048:
-        Peak GPU memory observed at batch=1024 was only 15.5 GB / 80 GB (19%).
-        Doubling to 2048 uses ~31 GB — well within the A100's 80 GB — and
-        nearly halves steps-per-epoch (~539 vs ~1077), cutting wall time further.
-        Tensor Core efficiency also improves with larger batch dimensions.
+      batch_size=3072:
+        Peak GPU memory observed at batch=2048 was 35 GB / 80 GB (44%).
+        Increasing to 3072 uses ~52 GB — comfortable headroom for variable-length
+        batch spikes — and cuts steps-per-epoch from ~538 to ~359, improving
+        throughput by ~50%. 4096 is risky (~69 GB, only 11 GB headroom).
 
       grad_accum_steps=1:
         With a true batch of 1024 there is no reason to accumulate — it wastes
@@ -229,8 +229,8 @@ def get_a100_overrides() -> dict:
     If OOM is observed (unlikely), fall back to batch_size=512, grad_accum_steps=2.
     """
     return {
-        "batch_size":       2048,   # A100: 15.5 GB peak at 1024 → ~31 GB at 2048 (safe on 80 GB)
-        "grad_accum_steps": 1,      # no accumulation at batch=2048
+        "batch_size":       3072,   # A100: 35 GB peak at 2048 → ~52 GB at 3072 (safe on 80 GB)
+        "grad_accum_steps": 1,      # no accumulation at batch=3072
         "num_workers":      4,      # async collation; dataset is fully in-memory
     }
 
