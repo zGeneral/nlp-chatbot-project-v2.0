@@ -8,7 +8,11 @@ Key design decisions:
   - All splits loaded fully into memory on __init__ (1.5M pairs ≈ 400 MB total,
     well within typical RAM budgets; avoids per-epoch file I/O overhead)
   - collate_fn returns a plain dict (not a tuple) for readability in train.py
-  - num_workers=0 default for macOS safety; set to 4 on Linux/Colab
+  - num_workers=0 default for macOS safety; set to 4 on Linux/Colab (A100 branch)
+  - pin_memory=True + non_blocking transfers (in train.py) overlap CPU→GPU copies
+    with GPU compute for maximum throughput
+  - persistent_workers=True (when num_workers > 0) avoids re-spawning worker
+    processes every epoch — important for the full 20-epoch A100 training run
 """
 
 import json
@@ -76,6 +80,19 @@ class UbuntuPairDataset(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, List[int]]:
         """Return {"ctx": List[int], "resp": List[int]}."""
         return self.pairs[idx]
+
+
+def _worker_init_fn(worker_id: int) -> None:
+    """Seed each DataLoader worker independently for reproducibility.
+
+    Called once per worker process at startup. Without this, all workers
+    share the same numpy random state (forked from the main process),
+    which produces correlated behaviour if any per-sample randomness is
+    added in future. NumPy seed = global seed (42) + worker_id ensures
+    each worker is deterministic but distinct.
+    """
+    import numpy as _np
+    _np.random.seed(42 + worker_id)
 
 
 def collate_fn(batch: List[Dict[str, List[int]]], pad_idx: int) -> Dict[str, torch.Tensor]:
@@ -168,6 +185,8 @@ def build_dataloaders(
         collate_fn=_collate,
         num_workers=num_workers,
         pin_memory=pin,
+        worker_init_fn=_worker_init_fn if num_workers > 0 else None,
+        persistent_workers=num_workers > 0,
     )
     val_loader = DataLoader(
         val_ds,
@@ -177,6 +196,8 @@ def build_dataloaders(
         collate_fn=_collate,
         num_workers=num_workers,
         pin_memory=pin,
+        worker_init_fn=_worker_init_fn if num_workers > 0 else None,
+        persistent_workers=num_workers > 0,
     )
     test_loader = DataLoader(
         test_ds,
@@ -186,6 +207,8 @@ def build_dataloaders(
         collate_fn=_collate,
         num_workers=num_workers,
         pin_memory=pin,
+        worker_init_fn=_worker_init_fn if num_workers > 0 else None,
+        persistent_workers=num_workers > 0,
     )
 
     return train_loader, val_loader, test_loader

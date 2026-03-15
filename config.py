@@ -162,13 +162,28 @@ CONFIG: dict = {
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def set_seed(seed: int = 42) -> None:
-    """Set all random seeds for full reproducibility (AC2-C1).
+    """Set all random seeds and configure hardware-specific acceleration.
 
     Must be called at the top of train.py main() and evaluate.py main()
     to ensure results are reproducible across runs.
 
+    A100 branch — hardware-specific settings applied when CUDA is available:
+      - cudnn.benchmark = True:  auto-tunes cuDNN kernel selection on the first
+            batch and caches the fastest algorithm. Since our padded input shapes
+            are fixed epoch-to-epoch, this gives a persistent speedup at zero cost.
+      - cudnn.deterministic = False:  allows non-deterministic (but faster) cuDNN
+            algorithms. The A100 branch prioritises throughput over bit-exact
+            reproducibility; results remain statistically reproducible via the seed.
+      - allow_tf32 = True:  enables TF32 (10-bit mantissa) on A100 Tensor Cores
+            for float32 matmul and cuDNN ops, delivering ~8× throughput vs standard
+            FP32 with negligible accuracy impact. The forward pass already uses bf16
+            AMP; TF32 primarily accelerates the optimizer step and FP32 fallbacks.
+
+    On non-CUDA hardware (MPS / CPU), full determinism is preserved for
+    reproducible local development and debugging.
+
     Note: DataLoader worker seeds are controlled separately via
-    ``worker_init_fn`` when ``num_workers > 0``.
+    ``worker_init_fn`` in dataset.py when ``num_workers > 0``.
     """
     import random as _random
     import numpy as _np
@@ -177,8 +192,48 @@ def set_seed(seed: int = 42) -> None:
     import torch as _torch
     _torch.manual_seed(seed)
     _torch.cuda.manual_seed_all(seed)
-    _torch.backends.cudnn.deterministic = True
-    _torch.backends.cudnn.benchmark = False
+    if _torch.cuda.is_available():
+        # A100: speed over bit-exact reproducibility.
+        _torch.backends.cudnn.deterministic = False
+        _torch.backends.cudnn.benchmark = True
+        # TF32 Tensor Core acceleration (A100 / Ampere+).
+        _torch.backends.cuda.matmul.allow_tf32 = True
+        _torch.backends.cudnn.allow_tf32 = True
+    else:
+        # Local / CPU / MPS: full determinism for reproducible debugging.
+        _torch.backends.cudnn.deterministic = True
+        _torch.backends.cudnn.benchmark = False
+
+
+def get_a100_overrides() -> dict:
+    """Config overrides for A100 80GB GPU full training.
+
+    These replace the conservative defaults in CONFIG, which were chosen for
+    local consumer-GPU testing. Key rationale:
+
+      batch_size=1024:
+        A100 Tensor Cores peak at large batch dimensions that are multiples
+        of 64. The model is only ~44M params (~170 MB in bf16); 80 GB VRAM
+        can comfortably handle 1024× sequences of max 100+42 tokens.
+        Larger batches also reduce steps-per-epoch (~1077 vs ~4310), so each
+        epoch runs ~4× faster in wall time.
+
+      grad_accum_steps=1:
+        With a true batch of 1024 there is no reason to accumulate — it wastes
+        memory on stale partial gradients. Effective batch = 1024.
+
+      num_workers=4:
+        The dataset is fully in-memory (no I/O), so workers handle collation
+        and padding asynchronously, keeping the GPU fed between steps. 4 is the
+        sweet spot for Colab A100 (~12 vCPUs); more workers can cause instability.
+
+    If OOM is observed (unlikely), fall back to batch_size=512, grad_accum_steps=2.
+    """
+    return {
+        "batch_size":       1024,   # A100: Tensor Core sweet spot (16 × 64)
+        "grad_accum_steps": 1,      # no accumulation at batch=1024
+        "num_workers":      4,      # async collation; dataset is fully in-memory
+    }
 
 def get_tf_ratio(epoch: int, config: dict) -> float:
     """Return the teacher-forcing ratio for a given 1-indexed epoch.

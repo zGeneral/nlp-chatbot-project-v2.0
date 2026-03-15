@@ -117,9 +117,9 @@ def train_epoch(
     optimizer.zero_grad(set_to_none=True)
 
     for batch_idx, batch in pbar:
-        src: torch.Tensor = batch["src"].to(device)                   # [B, src_len]
-        src_lengths: torch.Tensor = batch["src_lengths"].to(device)   # [B]
-        trg: torch.Tensor = batch["trg"].to(device)                   # [B, trg_len]
+        src: torch.Tensor = batch["src"].to(device, non_blocking=True)                   # [B, src_len]
+        src_lengths: torch.Tensor = batch["src_lengths"].to(device, non_blocking=True)   # [B]
+        trg: torch.Tensor = batch["trg"].to(device, non_blocking=True)                   # [B, trg_len]
 
         # ── Forward pass under bf16 autocast ───────────────────────────────
         # bf16 does not underflow like fp16 — GradScaler is not needed.
@@ -241,9 +241,9 @@ def evaluate_epoch(
     n_batches = 0
 
     for batch in tqdm(loader, desc="  val", unit="batch", dynamic_ncols=True, leave=False):
-        src: torch.Tensor = batch["src"].to(device)
-        src_lengths: torch.Tensor = batch["src_lengths"].to(device)
-        trg: torch.Tensor = batch["trg"].to(device)
+        src: torch.Tensor = batch["src"].to(device, non_blocking=True)
+        src_lengths: torch.Tensor = batch["src_lengths"].to(device, non_blocking=True)
+        trg: torch.Tensor = batch["trg"].to(device, non_blocking=True)
 
         # Pass teacher_forcing_ratio=0.0 so the decoder uses its own predictions,
         # not gold tokens.  trg still determines how many decode steps to run.
@@ -366,6 +366,11 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     model = build_model(model_type, config, device)
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"\n[{model_type}] Trainable parameters: {num_params:,}")
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / 1e9
+        reserved  = torch.cuda.memory_reserved()  / 1e9
+        print(f"  GPU memory after model load: {allocated:.2f} GB allocated, "
+              f"{reserved:.2f} GB reserved")
 
     # ── 3. Optimizer + scheduler ──────────────────────────────────────────────
     # total_steps must be computed AFTER building the dataloader so we know
@@ -429,6 +434,8 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     # ── 7. Training loop ──────────────────────────────────────────────────────
     for epoch in range(start_epoch, num_epochs + 1):
         epoch_start = time.time()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()   # flush async GPU ops so wall time is accurate
 
         # 7a. Teacher forcing ratio for this epoch (constant within epoch).
         tf_ratio = get_tf_ratio(epoch, config)
@@ -458,6 +465,8 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
 
         # 7d. LR is now stepped per optimizer step inside train_epoch();
         #     no epoch-level scheduler.step() needed here.
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()   # ensure all GPU work is done before measuring
         elapsed = time.time() - epoch_start
         lr: float = optimizer.param_groups[0]["lr"]
 
@@ -565,6 +574,16 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             f"Grad: {avg_gnorm:.3f} | "
             f"{elapsed:.1f}s"
         )
+        # After the first epoch: report peak GPU memory and ETA for planning.
+        if epoch == start_epoch:
+            if torch.cuda.is_available():
+                peak = torch.cuda.max_memory_allocated() / 1e9
+                print(f"  Peak GPU memory epoch {epoch}: {peak:.2f} GB / 80.0 GB")
+            if elapsed > 0 and num_epochs > start_epoch:
+                remaining = num_epochs - epoch
+                eta_min = (elapsed * remaining) / 60
+                print(f"  ETA: ~{eta_min:.0f} min for {remaining} remaining epoch(s) "
+                      f"(this model, assuming constant epoch time)")
 
     writer.close()
 
@@ -585,16 +604,75 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
     Args:
         cfg:         Config dict overrides. Defaults to CONFIG from config.py.
         script_name: Used for the run log filename (e.g. "train_mini").
+
+    CLI args:
+        --mode full    Full A100 training run with all hardware optimisations (default).
+        --mode sample  Quick smoke test: 10K pairs, 2 epochs. Verifies the full code
+                       path (both models, checkpointing, TensorBoard) in < 5 minutes.
     """
+    import argparse
     from logging_utils import setup_run_logging
-    active_cfg = cfg if cfg is not None else CONFIG
+
+    parser = argparse.ArgumentParser(
+        description="Train Seq2Seq chatbot — baseline (no attention) + Bahdanau attention"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["full", "sample"],
+        default="full",
+        help=(
+            "full: A100-optimised training (batch=1024, workers=4); "
+            "sample: 2-epoch smoke test on 10K pairs to verify end-to-end correctness"
+        ),
+    )
+    args = parser.parse_args()
+
+    # ── Build active config — start from provided cfg or global CONFIG ────────
+    active_cfg = dict(cfg if cfg is not None else CONFIG)
+
+    if args.mode == "full":
+        # Apply A100 80GB overrides: larger batch, no gradient accumulation,
+        # async data loading. See config.get_a100_overrides() for rationale.
+        from config import get_a100_overrides
+        active_cfg.update(get_a100_overrides())
+    elif args.mode == "sample":
+        # Smoke test: run the complete code path (both models, checkpoints,
+        # TensorBoard, validation) on a tiny subset. Must finish in < 5 min.
+        active_cfg.update({
+            "max_train_samples": 10000,   # subsample train to 10K pairs
+            "num_epochs":        2,        # just 2 epochs
+            "batch_size":        256,      # smaller batch for fast startup
+            "grad_accum_steps":  1,
+            "num_workers":       2,
+        })
+
     setup_run_logging(script_name, log_dir=active_cfg.get("log_dir", "new/logs"))
 
-    # AC2-C1: set all random seeds for full reproducibility.
+    # AC2-C1: set all random seeds and configure hardware acceleration.
     set_seed(active_cfg.get("seed", 42))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
+
+    # ── Startup banner ────────────────────────────────────────────────────────
+    eff_batch = active_cfg["batch_size"] * active_cfg["grad_accum_steps"]
+    gpu_name  = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A"
+    print("=" * 70)
+    if args.mode == "sample":
+        print("  SAMPLE MODE  — smoke test (10 K pairs, 2 epochs)")
+        print("  Exercises the full code path: both models, checkpoints, TensorBoard")
+    else:
+        print("  FULL MODE  — A100-optimised training")
+    print(f"  Device  : {device}  ({gpu_name})")
+    print(f"  Batch   : {active_cfg['batch_size']} × {active_cfg['grad_accum_steps']} accum "
+          f"= {eff_batch} effective")
+    print(f"  Epochs  : {active_cfg['num_epochs']}  |  Workers : {active_cfg['num_workers']}")
+    print(f"  LR peak : {active_cfg['learning_rate']:.1e}  "
+          f"|  LR min  : {active_cfg.get('lr_min', 1e-5):.1e}  "
+          f"|  Warmup  : {active_cfg.get('lr_warmup_steps', 500)} steps")
+    print(f"  Label smooth : {active_cfg.get('label_smoothing', 0.0)}  "
+          f"|  Patience : {active_cfg.get('patience', 0)}  "
+          f"|  TF floor : {active_cfg['tf_schedule']['phase3_tf']}")
+    print("=" * 70)
 
     os.makedirs(active_cfg["checkpoint_dir"], exist_ok=True)
     os.makedirs(active_cfg["tensorboard_dir"], exist_ok=True)
