@@ -229,9 +229,9 @@ def get_a100_overrides() -> dict:
     If OOM is observed (unlikely), fall back to batch_size=512, grad_accum_steps=2.
     """
     return {
-        "batch_size":       3072,   # A100: 35 GB peak at 2048 → ~52 GB at 3072 (safe on 80 GB)
-        "grad_accum_steps": 1,      # no accumulation at batch=3072
-        "num_workers":      4,      # async collation; dataset is fully in-memory
+        "batch_size":       4096,   # A100 max push: ~69 GB est. on 80 GB — if OOM drop to 3072
+        "grad_accum_steps": 1,
+        "num_workers":      4,
     }
 
 def get_tf_ratio(epoch: int, config: dict) -> float:

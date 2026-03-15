@@ -184,7 +184,7 @@ This trains both models sequentially (baseline first, then attention) with A100-
 
 | Setting | Value |
 |---|---|
-| Batch size | 3072 (35 GB peak at 2048 → safe ~52 GB at 3072 on 80 GB A100) |
+| Batch size | 4096 (~69 GB est. on 80 GB A100 — if OOM fall back to 3072) |
 | Gradient accumulation | 1 (true batch = 1024) |
 | DataLoader workers | 4 (async collation, persistent) |
 | AMP dtype | bf16 (A100 native, 312 TFLOPS) |
