@@ -75,32 +75,30 @@ echo "        ├── checkpoints/  ← best/last model checkpoints + history 
 echo "        ├── tb_logs/      ← TensorBoard event files"
 echo "        └── logs/         ← run logs"
 
-# ── 5. Link corpus CSV from Drive (if stored there) ───────────────────────────
+# ── 5. Link corpus CSV from Drive ─────────────────────────────────────────────
 echo "[5/5] Checking Ubuntu corpus CSV..."
-CORPUS_DEST="$REPO_DIR/data/Ubuntu-dialogue-corpus"
 CORPUS_FILE="dialogueText_301.csv"
+CORPUS_IN_DRIVE="$DRIVE_ROOT/data/Ubuntu-dialogue-corpus/$CORPUS_FILE"
+CORPUS_DEST="$REPO_DIR/data/Ubuntu-dialogue-corpus"
 CORPUS_IN_REPO="$CORPUS_DEST/$CORPUS_FILE"
-CORPUS_IN_DRIVE="$DRIVE_ROOT/$CORPUS_FILE"
 
 mkdir -p "$CORPUS_DEST"
 
-if [ -f "$CORPUS_IN_REPO" ]; then
-    echo "      Corpus already in repo ✓  ($CORPUS_IN_REPO)"
+if [ -f "$CORPUS_IN_REPO" ] || [ -L "$CORPUS_IN_REPO" ]; then
+    echo "      Corpus already linked/present in repo ✓"
 elif [ -f "$CORPUS_IN_DRIVE" ]; then
     echo "      Corpus found in Drive — symlinking into repo..."
     ln -sf "$CORPUS_IN_DRIVE" "$CORPUS_IN_REPO"
     echo "      Symlinked ✓"
+    echo "      $CORPUS_IN_DRIVE → $CORPUS_IN_REPO"
 else
     echo ""
-    echo "  WARNING: Ubuntu corpus CSV not found."
-    echo "  Expected at one of:"
-    echo "    $CORPUS_IN_REPO"
+    echo "  ERROR: Ubuntu corpus CSV not found at expected Drive location:"
     echo "    $CORPUS_IN_DRIVE"
     echo ""
-    echo "  Upload dialogueText_301.csv to Drive:"
-    echo "    $DRIVE_ROOT/dialogueText_301.csv"
-    echo "  Then re-run this script, or copy it manually:"
-    echo "    cp '$CORPUS_IN_DRIVE' '$CORPUS_IN_REPO'"
+    echo "  Make sure the file is at:"
+    echo "    MyDrive/nlp-chatbot-v2/data/Ubuntu-dialogue-corpus/dialogueText_301.csv"
+    exit 1
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────

@@ -64,7 +64,7 @@ This is the recommended way to run the full training. Everything works from the 
 - A Google account with Google Drive
 - A Colab A100 instance (Runtime → Change runtime type → A100 GPU)
 - The Ubuntu Dialogue Corpus CSV: `dialogueText_301.csv` (~1.7 GB)  
-  Upload it to your Drive at: `MyDrive/nlp-chatbot-v2/dialogueText_301.csv`
+  Already stored in your Drive at: `MyDrive/nlp-chatbot-v2/data/Ubuntu-dialogue-corpus/dialogueText_301.csv`
 
 ---
 
