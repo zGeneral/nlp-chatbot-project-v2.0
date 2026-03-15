@@ -6,11 +6,15 @@ side by side.  If checkpoints are not specified via CLI, presents an
 interactive numbered list of available .pt files from the checkpoint dir.
 
 Usage:
-    python chatv2.py                                  # auto-discover both models
-    python chatv2.py --decoding beam --beam-width 5   # beam search
+    # Local paths:
+    python chatv2.py
+    python chatv2.py --decoding beam --beam-width 5
     python chatv2.py --baseline checkpoints/baseline_best.pt \
                      --attention checkpoints/attention_best.pt
-    python chatv2.py --checkpoint-dir checkpoints_mini --decoding greedy
+
+    # Google Drive (Colab):
+    python chatv2.py --drive-dir /content/drive/MyDrive/nlp-chatbot-v2
+    python chatv2.py --drive-dir /content/drive/MyDrive/nlp-chatbot-v2 --decoding beam
 
 Runtime commands (type in chat):
     :mode greedy         switch to greedy decoding
@@ -80,18 +84,32 @@ def beam_decode(
     src_lengths = src_lengths.to(device)
 
     # Encode once.
-    enc_out, (h_n, c_n) = model.encoder(src, src_lengths)  # enc_out: [1, L, H]
-    src_mask = (src == model.encoder.embedding.padding_idx)  # [1, L]
+    enc_out, (h_n, c_n) = model.encoder(src, src_lengths)   # enc_out: [1, L, enc_dim]
+    src_mask = (src == model.pad_idx)                        # [1, L] — uses model.pad_idx
     dec_h, dec_c = model.bridge(h_n, c_n)                   # [layers, 1, dec_dim]
     enc_dim = enc_out.size(-1)
     context = torch.zeros(1, enc_dim, device=device)
 
+    # Precompute W_enc(encoder_outputs) once for the attention decoder so it
+    # isn't recomputed at every beam×step (O(beam_width × max_len) → O(1)).
+    # BaselineDecoder has no attention attribute; pass None and skip the kwarg.
+    keys_proj = (
+        model.decoder.attention.W_enc(enc_out)
+        if hasattr(model.decoder, "attention")
+        else None
+    )
+
+    def _step(tok, h, c, ctx):
+        """One decoder step. Passes keys_proj for attention model only."""
+        if keys_proj is not None:
+            return model.decoder.forward_step(tok, h, c, enc_out, ctx, src_mask,
+                                              keys_proj=keys_proj)
+        return model.decoder.forward_step(tok, h, c, enc_out, ctx, src_mask)
+
     # Each beam: dict with keys score, tokens, h, c, ctx
     # Initialise by expanding the first SOS step.
     sos_tok = torch.tensor([sos_idx], dtype=torch.long, device=device)
-    logits, h1, c1, ctx1, _ = model.decoder.forward_step(
-        sos_tok, dec_h, dec_c, enc_out, context, src_mask
-    )
+    logits, h1, c1, ctx1, _ = _step(sos_tok, dec_h, dec_c, context)
     log_probs = F.log_softmax(logits[0], dim=-1)
     topk_lp, topk_ids = log_probs.topk(min(beam_width, log_probs.size(-1)))
 
@@ -112,9 +130,7 @@ def beam_decode(
         candidates: List[dict] = []
         for beam in active:
             inp = torch.tensor([beam["tokens"][-1]], dtype=torch.long, device=device)
-            logits, new_h, new_c, new_ctx, _ = model.decoder.forward_step(
-                inp, beam["h"], beam["c"], enc_out, beam["ctx"], src_mask
-            )
+            logits, new_h, new_c, new_ctx, _ = _step(inp, beam["h"], beam["c"], beam["ctx"])
             lp_all = F.log_softmax(logits[0], dim=-1)
             topk_lp, topk_ids = lp_all.topk(min(beam_width, lp_all.size(-1)))
 
@@ -239,8 +255,15 @@ def load_model_from_checkpoint(
     config: dict,
     device: torch.device,
 ) -> Tuple[torch.nn.Module, dict]:
-    model = build_model(model_type, config, device)
+    """Load model weights and return (model, checkpoint_dict).
+
+    Uses the config stored inside the checkpoint when available, falling
+    back to the provided config dict. This ensures inference uses the exact
+    hyperparameters the model was trained with.
+    """
     ckpt = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+    cfg = ckpt.get("config", config)   # prefer checkpoint's own config
+    model = build_model(model_type, cfg, device)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
     return model, ckpt
@@ -438,9 +461,19 @@ def chat_loop(
 
 def main():
     default_ckpt_dir = Path(CONFIG.get("checkpoint_dir", "checkpoints"))
+    default_art_dir  = Path(CONFIG.get("artifact_dir",   "artifacts"))
 
     parser = argparse.ArgumentParser(
         description="Dual-model comparison chat with greedy / top-p / beam search."
+    )
+    parser.add_argument(
+        "--drive-dir",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Google Drive root (e.g. /content/drive/MyDrive/nlp-chatbot-v2). "
+            "Sets --checkpoint-dir and --artifact-dir automatically."
+        ),
     )
     parser.add_argument("--baseline",  default=None,
                         metavar="CKPT",
@@ -448,12 +481,12 @@ def main():
     parser.add_argument("--attention", default=None,
                         metavar="CKPT",
                         help="Path to attention checkpoint (interactive selection if omitted)")
-    parser.add_argument("--checkpoint-dir", default=str(default_ckpt_dir),
+    parser.add_argument("--checkpoint-dir", default=None,
                         metavar="DIR",
                         help=f"Directory to scan for checkpoints (default: {default_ckpt_dir})")
-    parser.add_argument("--artifact-dir",   default=str(CONFIG.get("artifact_dir", "artifacts")),
+    parser.add_argument("--artifact-dir",   default=None,
                         metavar="DIR",
-                        help="Directory containing phase1 artifacts (stage5_spm.model, …)")
+                        help=f"Directory containing phase1 artifacts (default: {default_art_dir})")
     parser.add_argument("--decoding", default="topp",
                         choices=["greedy", "topp", "beam"],
                         help="Decoding strategy (default: topp)")
@@ -464,9 +497,16 @@ def main():
                         help="clear=each question independent (default); multi=rolling history")
     args = parser.parse_args()
 
-    ckpt_dir  = Path(args.checkpoint_dir)
-    art_dir   = Path(args.artifact_dir)
-    device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # ── Resolve paths: --drive-dir sets both dirs if not individually overridden ─
+    if args.drive_dir:
+        drive = Path(args.drive_dir)
+        ckpt_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else drive / "checkpoints"
+        art_dir  = Path(args.artifact_dir)   if args.artifact_dir   else drive / "artifacts"
+    else:
+        ckpt_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else default_ckpt_dir
+        art_dir  = Path(args.artifact_dir)   if args.artifact_dir   else default_art_dir
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"\nDevice         : {device}")
     print(f"Checkpoint dir : {ckpt_dir}")
@@ -479,7 +519,7 @@ def main():
     attention_ckpt = pick_checkpoint(ckpt_dir, "attention", args.attention)
 
     if baseline_ckpt is None and attention_ckpt is None:
-        print("\nNo checkpoints found. Train the models first with: python train.py")
+        print("\nNo checkpoints found. Train the models first with: python run.py train")
         sys.exit(1)
 
     # ── Load SentencePiece ────────────────────────────────────────────────
@@ -487,13 +527,16 @@ def main():
     if not sp_path.exists():
         raise FileNotFoundError(
             f"SPM model not found: {sp_path}\n"
-            "Run phase1.py first to generate artifacts."
+            "Run phase1 first: python run.py phase1"
         )
     sp_processor = spm.SentencePieceProcessor(model_file=str(sp_path))
     print(f"\nSPM loaded     : {sp_path}")
 
-    # ── Load models ───────────────────────────────────────────────────────
+    # ── Load models — config pulled from each checkpoint ─────────────────
+    # Use the first successfully loaded checkpoint's config for the chat loop
+    # (both models are trained with the same config, so either is fine).
     models: Dict[str, torch.nn.Module] = {}
+    chat_cfg = CONFIG   # fallback if no checkpoint config is stored
     print()
     for model_type, ckpt_path in [("baseline", baseline_ckpt),
                                    ("attention", attention_ckpt)]:
@@ -506,12 +549,14 @@ def main():
         print(f"  Loaded {model_type:<10} | {ckpt_path.name}  "
               f"(epoch={epoch}, val_loss={vl:.4f}, params={n_params:,})")
         models[model_type] = model
+        if "config" in ckpt:
+            chat_cfg = ckpt["config"]   # use this model's trained config
 
     # ── Chat ──────────────────────────────────────────────────────────────
     chat_loop(
         models=models,
         sp_processor=sp_processor,
-        config=CONFIG,
+        config=chat_cfg,
         device=device,
         decoding_mode=args.decoding,
         beam_width=args.beam_width,

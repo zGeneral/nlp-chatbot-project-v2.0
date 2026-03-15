@@ -5,9 +5,16 @@ Loads a checkpoint and runs an interactive terminal chat loop.
 Maintains a rolling context window (last N turns) for multi-turn conversation.
 
 Usage:
+    # Local paths (auto-resolved from config):
     python chat.py --model-type attention
-    python chat.py --checkpoint checkpoints/baseline_best.pt --model-type baseline
-    python chat.py --model-type attention --greedy
+    python chat.py --model-type baseline --greedy
+
+    # Google Drive (Colab):
+    python chat.py --drive-dir /content/drive/MyDrive/nlp-chatbot-v2 --model-type attention
+    python chat.py --drive-dir /content/drive/MyDrive/nlp-chatbot-v2 --model-type baseline --greedy
+
+    # Explicit checkpoint:
+    python chat.py --checkpoint /path/to/attention_best.pt --model-type attention
 """
 
 import argparse
@@ -156,17 +163,30 @@ def chat_loop(model, sp_processor, config: dict, device: torch.device, greedy: b
 
 def main():
     default_ckpt_dir = Path(CONFIG.get("checkpoint_dir", "checkpoints"))
+    default_art_dir  = Path(CONFIG.get("artifact_dir",   "artifacts"))
 
     parser = argparse.ArgumentParser(
         description="Interactive chat with a trained Seq2Seq Ubuntu chatbot."
     )
     parser.add_argument(
+        "--drive-dir",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Google Drive root (e.g. /content/drive/MyDrive/nlp-chatbot-v2). "
+            "Sets --checkpoint-dir and --artifact-dir automatically."
+        ),
+    )
+    parser.add_argument(
         "--checkpoint",
         default=None,
-        help=(
-            "Path to .pt checkpoint. "
-            "Defaults to {checkpoint_dir}/{model_type}_best.pt"
-        ),
+        help="Path to .pt checkpoint. Defaults to {checkpoint_dir}/{model_type}_best.pt",
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        default=None,
+        metavar="DIR",
+        help=f"Directory containing checkpoints (default: {default_ckpt_dir})",
     )
     parser.add_argument(
         "--model-type",
@@ -176,8 +196,9 @@ def main():
     )
     parser.add_argument(
         "--artifact-dir",
-        default=str(CONFIG.get("artifact_dir", "artifacts")),
-        help="Directory containing phase1 artifacts (stage5_spm.model, etc.)",
+        default=None,
+        metavar="DIR",
+        help=f"Directory containing phase1 artifacts (default: {default_art_dir})",
     )
     parser.add_argument(
         "--greedy",
@@ -186,34 +207,46 @@ def main():
     )
     args = parser.parse_args()
 
-    # Resolve checkpoint path.
-    if args.checkpoint is None:
-        ckpt_path = default_ckpt_dir / f"{args.model_type}_best.pt"
+    # ── Resolve paths: --drive-dir sets both dirs if not individually overridden ─
+    if args.drive_dir:
+        drive = Path(args.drive_dir)
+        ckpt_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else drive / "checkpoints"
+        art_dir  = Path(args.artifact_dir)   if args.artifact_dir   else drive / "artifacts"
     else:
+        ckpt_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else default_ckpt_dir
+        art_dir  = Path(args.artifact_dir)   if args.artifact_dir   else default_art_dir
+
+    # Resolve checkpoint path.
+    if args.checkpoint is not None:
         ckpt_path = Path(args.checkpoint)
+    else:
+        ckpt_path = ckpt_dir / f"{args.model_type}_best.pt"
 
     if not ckpt_path.exists():
         raise FileNotFoundError(
             f"Checkpoint not found: {ckpt_path}\n"
-            f"Train the model first with: python train.py"
+            f"Train the model first with: python run.py train"
         )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device      : {device}")
 
     # Load SentencePiece model.
-    sp_path = Path(args.artifact_dir) / "stage5_spm.model"
+    sp_path = art_dir / "stage5_spm.model"
     if not sp_path.exists():
         raise FileNotFoundError(
             f"SPM model not found: {sp_path}\n"
-            f"Run phase1.py first to generate artifacts."
+            f"Run phase1 first: python run.py phase1"
         )
     sp_processor = spm.SentencePieceProcessor(model_file=str(sp_path))
     print(f"SPM loaded  : {sp_path}")
 
-    # Load model from checkpoint.
-    model = build_model(args.model_type, CONFIG, device)
+    # Load checkpoint — prefer config stored inside the checkpoint so inference
+    # uses the exact hyperparameters the model was trained with.
     ckpt = torch.load(str(ckpt_path), map_location=device, weights_only=False)
+    cfg = ckpt.get("config", CONFIG)   # fall back to global CONFIG if not stored
+
+    model = build_model(args.model_type, cfg, device)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 
@@ -222,7 +255,7 @@ def main():
     print(f"Model       : {args.model_type}  (epoch {trained_epoch}, val_loss={best_val_loss:.4f})")
     print(f"Checkpoint  : {ckpt_path}")
 
-    chat_loop(model, sp_processor, CONFIG, device, greedy=args.greedy)
+    chat_loop(model, sp_processor, cfg, device, greedy=args.greedy)
 
 
 if __name__ == "__main__":
