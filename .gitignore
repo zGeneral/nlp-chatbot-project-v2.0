@@ -60,3 +60,4 @@ Thumbs.db
 # Secrets / credentials
 *.env
 secrets.yaml
+report/figures/
