@@ -41,6 +41,14 @@ is the attention mechanism — providing a controlled apples-to-apples ablation.
 """
 
 import os
+
+# Suppress TensorFlow / oneDNN startup noise before any other imports.
+# TensorBoard pulls in TF as a backend; these env vars silence the warnings
+# about cuFFT/cuDNN/cuBLAS factory re-registration and oneDNN opts — they
+# are harmless but clutter the training log.
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+
 import json
 import math
 import time
@@ -419,12 +427,27 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         ckpt = torch.load(resume_path, map_location=device, weights_only=False)
         model.load_state_dict(ckpt["model_state_dict"])
         optimizer.load_state_dict(ckpt["optimizer_state"])
-        scheduler.load_state_dict(ckpt["scheduler_state"])
         best_val_loss = ckpt.get("val_loss", float("inf"))
         start_epoch = ckpt.get("epoch", 0) + 1
         global_step = ckpt.get("global_step", 0)
         if "history" in ckpt:
             history = ckpt["history"]
+
+        # ── Scheduler resume: fast-forward rather than load state dict ────────
+        # We do NOT call scheduler.load_state_dict() because the saved scheduler
+        # may have been built with a different total_steps (e.g., a --mode sample
+        # run has total_steps=78 → cosine T_max=1, which would crater the LR to
+        # lr_min immediately after the milestone on a full run).
+        # Instead, rebuild the scheduler for THIS run's total_steps and replay
+        # global_step calls to scheduler.step(). This is O(global_step) Python
+        # overhead (no GPU work) and is effectively instant.
+        if global_step > 0:
+            for _ in range(global_step):
+                scheduler.step()
+            lr_now = optimizer.param_groups[0]["lr"]
+            print(f"[{model_type}] Scheduler fast-forwarded to step {global_step} "
+                  f"→ LR = {lr_now:.3e}  (total_steps={total_steps})")
+
         print(f"[{model_type}] Resumed at epoch {start_epoch}, step {global_step}, "
               f"best_val={best_val_loss:.4f}")
 

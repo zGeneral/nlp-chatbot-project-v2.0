@@ -184,7 +184,7 @@ This trains both models sequentially (baseline first, then attention) with A100-
 
 | Setting | Value |
 |---|---|
-| Batch size | 1024 (A100 Tensor Core sweet spot) |
+| Batch size | 2048 (15.5 GB peak at 1024 → safe ~31 GB at 2048 on 80 GB A100) |
 | Gradient accumulation | 1 (true batch = 1024) |
 | DataLoader workers | 4 (async collation, persistent) |
 | AMP dtype | bf16 (A100 native, 312 TFLOPS) |
