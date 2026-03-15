@@ -55,7 +55,43 @@ nlp-chatbot-project-v2.0/
 
 ---
 
-## Google Colab A100 — complete terminal guide
+## Uploading pre-built artifacts from Windows
+
+If you already ran phase1 on a Windows machine, use the included PowerShell script to zip and upload the 5 required artifact files directly to Google Drive:
+
+```powershell
+# From the repo root on Windows — runs automatically:
+.\upload_artifacts_to_drive.ps1
+```
+
+It tries (in order):
+1. **Google Drive for Desktop** — copies files directly into your synced Drive folder (fastest, no extra tools)
+2. **rclone** — if installed ([rclone.org](https://rclone.org)) and configured with a `gdrive` remote
+3. **Manual fallback** — saves a zip to your Desktop with upload instructions
+
+The 5 files it uploads:
+
+| File | Description |
+|---|---|
+| `stage5_spm.model` | SentencePiece BPE tokeniser |
+| `stage6_train_ids.jsonl` | ~1.1M training pairs (BPE token IDs) |
+| `stage6_val_ids.jsonl` | ~47K validation pairs |
+| `stage6_test_ids.jsonl` | ~47K test pairs |
+| `stage8_embedding_matrix.npy` | 16 000 × 300 FastText embedding matrix |
+
+After upload, they land at `MyDrive/nlp-chatbot-v2/artifacts/` — exactly where `run.py` and Colab expect them. **Skip phase1 entirely and go straight to training.**
+
+```powershell
+# Override source path if your artifacts are in a different folder:
+.\upload_artifacts_to_drive.ps1 -ArtifactsDir "D:\my-project\new\artifacts"
+
+# Just create the zip without uploading (upload manually):
+.\upload_artifacts_to_drive.ps1 -ZipOnly
+```
+
+---
+
+
 
 This is the recommended way to run the full training. Everything works from the **terminal** — no notebook cells required except the one-time Drive mount.
 
