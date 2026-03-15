@@ -38,7 +38,7 @@ dataset.py         (old — reference for collate_fn)
 
 ### Key Invariants
 - Token IDs: pad=0, unk=1, sos=2, eos=3 — enforced by SPM trainer + 4 post-train assertions
-- mp.get_context("spawn") for Colab safety; atomic saves via .tmp→os.replace()
+- mp.get_context("spawn") for Windows safety; atomic saves via .tmp→os.replace()
 - PHASE1_CONFIG in phase1.py; paths relative to project root
 
 ## Prompt
@@ -52,7 +52,7 @@ make a silent bug.
 Read all files listed in new/agents/developer.md under "Files to Read Before Running".
 
 Background:
-- PyTorch 2.1+, CUDA 12.1, A100 GPU, bf16 AMP
+- PyTorch 2.6.0+cu124, CUDA 12.4, RTX 3080 12 GB, bf16 AMP
 - SentencePiece BPE tokenization (replaces word-level vocab)
 - Bidirectional LSTM encoder (NEW — old code was unidirectional)
 - EncoderDecoderBridge: h_n[num_layers*2, batch, hidden_dim] → [num_layers, batch, hidden_dim*2]
@@ -68,7 +68,7 @@ Review checklist:
 4. W_enc precomputation in BahdanauAttention — is this optimization noted?
 5. collate_fn sort requirement vs enforce_sorted=False contradiction
 6. Loss computation: trg[:, 1:] shift — is trg_len the padded or actual length?
-7. GradScaler: needed for bf16 on A100?
+7. GradScaler: needed for bf16 on RTX 3080? (No — bf16 is natively stable on Ampere)
 8. global_step counting: optimizer steps vs forward passes with grad_accum_steps=2
 9. top_p_decode n-gram blocking algorithm specification
 10. SentencePiece encode method: which API call to use?

@@ -216,31 +216,26 @@ Strip `<sos>` and `<eos>` before returning.
 
 ## 7. Dependencies (`new/` only)
 
-Add these to the project `requirements.txt` or install in Colab:
+Add these to the project `requirements.txt` (already configured for CUDA 12.4):
 
 ```
 sentencepiece>=0.2.0          # BPE tokenization
 gensim>=4.3.0                 # FastText training
 sacrebleu>=2.3.0              # BLEU corpus evaluation (tokenizer-safe)
 rouge-score>=0.1.3            # ROUGE-L evaluation
-torch>=2.1.0                  # with CUDA 12.1 on A100
+torch>=2.6.0+cu124            # CUDA 12.4 — RTX 3080 12 GB
 tensorboard>=2.14.0
 tqdm>=4.66.0
 numpy>=1.24.0
 ```
 
-**Colab install cell (add as Cell 2 in both notebooks):**
-```python
-!pip install -q sentencepiece gensim sacrebleu rouge-score
-```
-
 ---
 
-## 8. Directory Layout on Google Drive
+## 8. Directory Layout
 
 ```
-/content/drive/MyDrive/nlp-chatbot-project/
-├── new_artifacts/              ← Phase 1 outputs (stage1–8 files)
+C:\git\nlp-chatbot-project-v2.0\
+├── artifacts\                  ← Phase 1 outputs (stage1–8 files)
 │   ├── stage5_spm.model
 │   ├── stage6_vocab.json
 │   ├── stage6_train_ids.jsonl
@@ -248,20 +243,19 @@ numpy>=1.24.0
 │   ├── stage6_test_ids.jsonl
 │   ├── stage7_fasttext.model   (+ .wv.vectors* sidecar files)
 │   └── stage8_embedding_matrix.npy
-├── new_checkpoints/            ← Training outputs
+├── checkpoints\                ← Training outputs
 │   ├── attention_best.pt
 │   ├── baseline_best.pt
-│   ├── bleu_results.json
+│   ├── run_info.json
 │   ├── attention_heatmap.png
 │   ├── attention_manual_samples.json
 │   └── baseline_manual_samples.json
-└── new_tb_logs/                ← TensorBoard
-    ├── attention/
-    └── baseline/
+└── tb_logs\                    ← TensorBoard
+    ├── attention\
+    └── baseline\
 ```
 
-`config.py` defaults point to `new/artifacts/` (local).  
-Colab notebooks override with absolute Drive paths via `CONFIG.update(A100_OVERRIDES)`.
+All paths in `config.py` are relative to the project root and work as-is on Windows.
 
 ---
 

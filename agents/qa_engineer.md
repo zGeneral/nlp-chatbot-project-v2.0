@@ -43,7 +43,7 @@ dataset.py         (old — collate_fn, num_workers=0 macOS fix)
 
 ### QA Focus Areas for Phase 1
 1. Are all edge cases handled? (empty dialogues, 0-length responses, all turns filtered)
-2. Are stats/logging sufficient to diagnose problems in Colab without re-running?
+2. Are stats/logging sufficient to diagnose problems without re-running?
 3. Are any file handles left open or temp files not cleaned up?
 4. Are multiprocessing chunks correctly sized (chunk_size=50_000)?
 5. Are there any race conditions in multi-worker stage 2?
@@ -66,7 +66,7 @@ Prior bugs in old codebase to be aware of:
 - v2 exploded (gradient explosion at TF decay boundary)
 - DataLoader hung on macOS with num_workers>0
 - NaN losses occurred and required skip logic
-- Colab session disconnected mid-epoch, corrupting checkpoint saves
+- Process killed mid-epoch, corrupting checkpoint saves
 - Batch format was tuple (not dict), causing bugs when collate_fn changed
 - Zero-length sequences passed to pack_padded_sequence caused crashes
 - Label smoothing accidentally applied to val criterion, inflating val loss
@@ -74,9 +74,9 @@ Prior bugs in old codebase to be aware of:
 
 Review checklist:
 1. Phase 1 risks: inconsistent date formats, no valid pairs after filtering, SPM OOM
-2. Dataset risks: malformed JSONL, empty ctx/resp, all-same-length batch, num_workers>0 on Colab
+2. Dataset risks: malformed JSONL, empty ctx/resp, all-same-length batch, num_workers>0 on Windows
 3. Model risks: zero src_lengths after filtering, NaN from bridge Linear, exploding values
-4. Training risks: NaN during gradient accumulation, checkpoint save failure, Colab disconnect
+4. Training risks: NaN during gradient accumulation, checkpoint save failure, process interruption
 5. Evaluation risks: model always outputs <eos> immediately, empty hypotheses, sacrebleu vs nltk
 6. Missing assertions and validation checks
 7. Missing logging/monitoring for early diagnosis

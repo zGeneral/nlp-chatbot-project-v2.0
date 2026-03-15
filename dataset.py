@@ -8,11 +8,10 @@ Key design decisions:
   - All splits loaded fully into memory on __init__ (1.5M pairs ≈ 400 MB total,
     well within typical RAM budgets; avoids per-epoch file I/O overhead)
   - collate_fn returns a plain dict (not a tuple) for readability in train.py
-  - num_workers=0 default for macOS safety; set to 4 on Linux/Colab (A100 branch)
-  - pin_memory=True + non_blocking transfers (in train.py) overlap CPU→GPU copies
-    with GPU compute for maximum throughput
+  - num_workers=4 on Windows RTX3080-12GB (set in config.py); pin_memory=True
+    for maximum CPU→GPU throughput
   - persistent_workers=True (when num_workers > 0) avoids re-spawning worker
-    processes every epoch — important for the full 20-epoch A100 training run
+    processes every epoch — important for the full 20-epoch training run
 """
 
 import json
@@ -119,7 +118,7 @@ class UbuntuPairDataset(Dataset):
     Loads BPE-tokenised Ubuntu dialogue pairs from a JSONL file produced by
     phase1.py Stage 6.  All pairs are held in memory; at ~50 IDs per pair and
     8 bytes per int, 1.5 M pairs occupy roughly 400 MB — comfortably feasible
-    on any modern training machine or Colab instance.
+    on any modern training machine.
     """
 
     def __init__(self, jsonl_path: str, max_ctx_len: int, max_resp_len: int) -> None:
@@ -231,7 +230,7 @@ def build_dataloaders(
     Args:
         artifact_dir:       Directory containing stage6_*_ids.jsonl files.
         batch_size:         Samples per batch.
-        num_workers:        DataLoader worker processes (0 = main process; use 4 on Linux/Colab).
+        num_workers:        DataLoader worker processes (0 = main process; use 4 on Windows RTX).
         max_ctx_len:        Hard truncation for context sequences passed to UbuntuPairDataset.
         max_resp_len:       Hard truncation for response sequences (incl. <sos>/<eos>).
         pad_idx:            Padding token ID (must match config pad_idx, typically 0).

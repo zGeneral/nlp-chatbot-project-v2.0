@@ -737,8 +737,8 @@ def stage2_clean_and_filter(dialogues: List[Dict], cfg: dict) -> Tuple[List[Dict
     worker_args = [(chunk, cfg) for chunk in chunks]
 
     try:
-        # Use "spawn" context to avoid deadlocks when forking inside Jupyter/Colab
-        # (fork inherits background threads; spawn starts clean) (QA2-M2).
+        # Use "spawn" context to avoid deadlocks on Windows (fork is unavailable;
+        # spawn starts a clean process without inheriting background threads) (QA2-M2).
         _mp_ctx = mp.get_context("spawn")
         with _mp_ctx.Pool(num_workers) as pool:
             for ci, (kept_chunk, reason_counts) in enumerate(

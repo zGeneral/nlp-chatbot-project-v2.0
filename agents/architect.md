@@ -37,7 +37,7 @@ dataset.py         (old — for comparison context)
 
 ### Key Invariants
 - Token ID contract: pad=0, unk=1, sos=2, eos=3 (enforced by SPM trainer + assertions)
-- Multiprocessing: `mp.get_context("spawn")` (not fork) for Colab/Jupyter safety
+- Multiprocessing: `mp.get_context("spawn")` (Windows requires spawn; fork unavailable)
 - Atomic saves: .tmp then os.replace(); np.save tmp MUST end in .npy
 - PHASE1_CONFIG in phase1.py (not config.py); paths relative to project root
 
@@ -57,7 +57,7 @@ Background:
 - Prior failures: TF decay → quality inversion, 30k word vocab, unidirectional encoder, LR explosion
 - New design: SentencePiece BPE 16-20k vocab, bidirectional encoder, TF=1.0 for epochs 1-15,
   LR=3e-4 flat, FastText on BPE-tokenised corpus
-- Training will run on Google Colab A100 GPU
+- Training will run on Windows RTX 3080 12 GB (CUDA 12.4, torch 2.6.0+cu124)
 - EncoderDecoderBridge: h_n[num_layers*2, batch, hidden_dim] → [num_layers, batch, hidden_dim*2]
 
 Review checklist:
@@ -70,7 +70,7 @@ Review checklist:
 6. Projection bottleneck (1024→512→vocab): placed correctly? Activation needed?
 7. Shared embedding (encoder+decoder): compatible with bidirectional encoder?
 8. Missing components: separate val_criterion? GradScaler for AMP bf16?
-9. Checkpoint format: captures everything for reliable Colab resume?
+9. Checkpoint format: captures everything for reliable resume across runs?
 10. Any other architectural concerns.
 
 Produce a structured report: CRITICAL (will break training), IMPORTANT (suboptimal results),
