@@ -25,14 +25,14 @@ is the attention mechanism — providing a controlled apples-to-apples ablation.
     representations were valuable but locked behind exposure bias. Annealing
     from epoch 6 unlocks this 7-epoch window that was previously wasted.
 
-  LR STRATEGY: cosine annealing with linear warmup.
-    500-step warmup (LR: 0 → 3e-4), then cosine decay to 1e-5.
-    Replaces ReduceLROnPlateau, which was prematurely reducing LR during the
-    flat-val-loss TF=1.0 phase and wasting the LR budget.
-    scheduler.step() is called per OPTIMIZER STEP (not per epoch).
+  LR STRATEGY: ReduceLROnPlateau (adaptive, proven on original RTX 3090 run).
+    factor=0.5, patience=3, min_lr=1e-5.
+    scheduler.step(val_loss) is called once PER EPOCH after validation.
+    The Phase 2 reset (best_val_loss=inf at epoch 6) prevents plateau from
+    prematurely halving LR during the TF=1.0 exposure-bias phase.
 
   EARLY STOPPING:
-    Patience = 4 epochs, monitored only from Phase 2 onward (epoch > 5).
+    Patience = 5 epochs, monitored only from Phase 2 onward (epoch > 5).
     Val loss under autoregressive evaluation is not meaningful during Phase 1
     because the model isn't yet training for that objective.
 
@@ -80,7 +80,6 @@ def train_epoch(
     epoch: int,
     writer: SummaryWriter,
     global_step: int,
-    scheduler,
 ) -> Tuple[float, float, int]:
     """
     One training epoch with bf16 AMP and gradient accumulation.
@@ -175,7 +174,6 @@ def train_epoch(
                 continue
 
             optimizer.step()
-            scheduler.step()   # cosine/warmup scheduler steps per optimizer step, not per epoch
             optimizer.zero_grad(set_to_none=True)
 
             # global_step = optimizer steps, NOT forward passes.
@@ -279,30 +277,30 @@ def evaluate_epoch(
 def build_optimizer_and_scheduler(
     model: nn.Module,
     config: dict,
-    total_steps: int,
-) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.SequentialLR]:
+) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.ReduceLROnPlateau]:
     """
-    Build AdamW optimizer and a cosine-annealing scheduler with linear warmup.
+    Build AdamW optimizer and ReduceLROnPlateau scheduler.
 
-    Schedule (both phases are chained via SequentialLR):
-      1. Warmup  — LR ramps linearly from ~0 → peak (learning_rate) over
-                   ``lr_warmup_steps`` optimizer steps.
-      2. Cosine  — LR decays from peak → ``lr_min`` via cosine annealing
-                   over the remaining (total_steps - lr_warmup_steps) steps.
+    ReduceLROnPlateau is the adaptive strategy proven on the original RTX 3090
+    run. It halves LR when val_loss stalls, which is the correct signal for a
+    seq2seq model where the val metric depends heavily on the TF regime.
 
-    IMPORTANT: scheduler.step() must be called once per optimizer step
-    (inside train_epoch), NOT once per epoch on validation loss.
+    IMPORTANT: scheduler.step(val_loss) must be called ONCE PER EPOCH after
+    validation — NOT once per optimizer step.
 
-    Replaces ReduceLROnPlateau, which was prematurely reducing LR during the
-    flat-val-loss TF=1.0 phase and wasting the LR budget before TF annealing.
+    Combined with the Phase 2 reset (best_val_loss=inf at epoch phase1_end+1),
+    the plateau scheduler won't prematurely reduce LR during TF=1.0 because:
+      - Epochs 1–5 (Phase 1): early stopping is disabled → even if plateau fires,
+        LR reduction just lets the model fine-tune (no early exit).
+      - At epoch 6 (Phase 2 start): best_val_loss resets → plateau's internal
+        `best` is also reset (via a fresh scheduler), so the first val_loss of
+        Phase 2 becomes the new reference. LR will only reduce if Phase 2 val
+        loss fails to improve for lr_patience=3 consecutive epochs.
 
     Args:
-        model:        The model whose parameters to optimise.
-        config:       CONFIG dict — must contain ``learning_rate``,
-                      ``weight_decay``, ``lr_warmup_steps``, ``lr_min``.
-        total_steps:  Total optimizer steps for the full training run.
-                      Compute as: num_epochs * (len(train_loader) // grad_accum_steps).
-                      Used to size the cosine tail correctly.
+        model:   The model whose parameters to optimise.
+        config:  CONFIG dict — must contain ``learning_rate``, ``weight_decay``,
+                 ``lr_patience``, ``lr_factor``, ``lr_min``.
 
     Returns:
         (optimizer, scheduler)
@@ -313,31 +311,12 @@ def build_optimizer_and_scheduler(
         weight_decay=config["weight_decay"],
     )
 
-    warmup_steps: int = config.get("lr_warmup_steps", 500)
-    lr_min: float = config.get("lr_min", 1e-5)
-    cosine_steps: int = max(total_steps - warmup_steps, 1)
-
-    # Linear warmup: multiply base LR by a factor that grows from
-    # 1/warmup_steps → 1.0 over warmup_steps steps (≈ 0 → peak LR).
-    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
-        start_factor=1.0 / warmup_steps,
-        end_factor=1.0,
-        total_iters=warmup_steps,
-    )
-
-    # Cosine annealing: decay from peak LR → lr_min over the remaining steps.
-    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=cosine_steps,
-        eta_min=lr_min,
-    )
-
-    # Chain: first warmup_steps use LinearLR, then switch to CosineAnnealingLR.
-    scheduler = torch.optim.lr_scheduler.SequentialLR(
-        optimizer,
-        schedulers=[warmup_scheduler, cosine_scheduler],
-        milestones=[warmup_steps],
+        mode="min",
+        factor=config.get("lr_factor", 0.5),
+        patience=config.get("lr_patience", 3),
+        min_lr=config.get("lr_min", 1e-5),
     )
     return optimizer, scheduler
 
@@ -357,20 +336,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     # Stash model_type in config so train_epoch can name periodic checkpoints.
     config = dict(config)
     config["_model_type"] = model_type
-
-    # Attention decoder stores encoder_outputs [batch, src_len, enc_hidden_dim]
-    # and attention weights [batch, src_len] at every decode step — substantially
-    # more per-step GPU memory than the baseline's fixed context vector.
-    # Halve the micro-batch and double gradient accumulation so effective batch
-    # size (and gradient dynamics) remain identical to the baseline.
-    if model_type == "attention":
-        actual_batch = config["batch_size"] // 2
-        actual_accum = config["grad_accum_steps"] * 2
-        config["batch_size"] = actual_batch
-        config["grad_accum_steps"] = actual_accum
-        print(f"[{model_type}] Adjusted for attention memory: "
-              f"batch={actual_batch} × accum={actual_accum} = "
-              f"{actual_batch * actual_accum} effective")
 
     # ── 1. Data ──────────────────────────────────────────────────────────────
     # FIX M6 — exact call as specified in INTERFACES.md §4
@@ -395,10 +360,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
               f"{reserved:.2f} GB reserved")
 
     # ── 3. Optimizer + scheduler ──────────────────────────────────────────────
-    # total_steps must be computed AFTER building the dataloader so we know
-    # len(train_loader). Cosine annealing needs this to size the decay tail.
-    total_steps = config["num_epochs"] * (len(train_loader) // config["grad_accum_steps"])
-    optimizer, scheduler = build_optimizer_and_scheduler(model, config, total_steps)
+    optimizer, scheduler = build_optimizer_and_scheduler(model, config)
 
     # ── 4. Loss ───────────────────────────────────────────────────────────────
     # label_smoothing=0.0 during TF=1.0 phase — smoothing fights sharp token
@@ -447,20 +409,14 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         if "history" in ckpt:
             history = ckpt["history"]
 
-        # ── Scheduler resume: fast-forward rather than load state dict ────────
-        # We do NOT call scheduler.load_state_dict() because the saved scheduler
-        # may have been built with a different total_steps (e.g., a --mode sample
-        # run has total_steps=78 → cosine T_max=1, which would crater the LR to
-        # lr_min immediately after the milestone on a full run).
-        # Instead, rebuild the scheduler for THIS run's total_steps and replay
-        # global_step calls to scheduler.step(). This is O(global_step) Python
-        # overhead (no GPU work) and is effectively instant.
-        if global_step > 0:
-            for _ in range(global_step):
-                scheduler.step()
-            lr_now = optimizer.param_groups[0]["lr"]
-            print(f"[{model_type}] Scheduler fast-forwarded to step {global_step} "
-                  f"→ LR = {lr_now:.3e}  (total_steps={total_steps})")
+        # ReduceLROnPlateau: load optimizer state to restore the exact LR at
+        # the time the checkpoint was saved. The scheduler is NOT loaded from
+        # state dict — it starts fresh each resume, which is safe because
+        # ReduceLROnPlateau reads the current LR from optimizer.param_groups.
+        # This avoids scheduler-type mismatches between runs (e.g., cosine
+        # checkpoint loaded into a plateau scheduler).
+        lr_now = optimizer.param_groups[0]["lr"]
+        print(f"[{model_type}] Scheduler starts fresh at LR = {lr_now:.3e}")
 
         print(f"[{model_type}] Resumed at epoch {start_epoch}, step {global_step}, "
               f"best_val={best_val_loss:.4f}")
@@ -488,7 +444,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             epoch=epoch,
             writer=writer,
             global_step=global_step,
-            scheduler=scheduler,
         )
 
         # 7c. Validate.
@@ -500,8 +455,9 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             amp_dtype=_amp_dtype,
         )
 
-        # 7d. LR is now stepped per optimizer step inside train_epoch();
-        #     no epoch-level scheduler.step() needed here.
+        # 7d. Step ReduceLROnPlateau with validation loss.
+        #     Must be called AFTER validation, once per epoch.
+        scheduler.step(val_loss)
         if torch.cuda.is_available():
             torch.cuda.synchronize()   # ensure all GPU work is done before measuring
         elapsed = time.time() - epoch_start
@@ -671,7 +627,7 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
         choices=["full", "sample"],
         default="full",
         help=(
-            "full: A100-optimised training (batch=1024, workers=4); "
+            "full: standard training (batch=512, ReduceLROnPlateau); "
             "sample: 2-epoch smoke test on 10K pairs to verify end-to-end correctness"
         ),
     )
@@ -681,8 +637,7 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
     active_cfg = dict(cfg if cfg is not None else CONFIG)
 
     if args.mode == "full":
-        # Apply A100 80GB overrides: larger batch, no gradient accumulation,
-        # async data loading. See config.get_a100_overrides() for rationale.
+        # Apply A100 data-loading override only — batch size stays at 256×2=512.
         from config import get_a100_overrides
         active_cfg.update(get_a100_overrides())
     elif args.mode == "sample":
@@ -711,14 +666,14 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
         print("  SAMPLE MODE  — smoke test (10 K pairs, 2 epochs)")
         print("  Exercises the full code path: both models, checkpoints, TensorBoard")
     else:
-        print("  FULL MODE  — A100-optimised training")
+        print("  FULL MODE  — batch=256×2=512 effective, ReduceLROnPlateau")
     print(f"  Device  : {device}  ({gpu_name})")
     print(f"  Batch   : {active_cfg['batch_size']} × {active_cfg['grad_accum_steps']} accum "
           f"= {eff_batch} effective")
     print(f"  Epochs  : {active_cfg['num_epochs']}  |  Workers : {active_cfg['num_workers']}")
-    print(f"  LR peak : {active_cfg['learning_rate']:.1e}  "
-          f"|  LR min  : {active_cfg.get('lr_min', 1e-5):.1e}  "
-          f"|  Warmup  : {active_cfg.get('lr_warmup_steps', 500)} steps")
+    print(f"  LR      : {active_cfg['learning_rate']:.1e}  "
+          f"|  Plateau factor : {active_cfg.get('lr_factor', 0.5)}  "
+          f"|  Plateau patience : {active_cfg.get('lr_patience', 3)}")
     print(f"  Label smooth : {active_cfg.get('label_smoothing', 0.0)}  "
           f"|  Patience : {active_cfg.get('patience', 0)}  "
           f"|  TF floor : {active_cfg['tf_schedule']['phase3_tf']}")

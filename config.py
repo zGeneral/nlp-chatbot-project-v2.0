@@ -52,7 +52,7 @@ _TRAINING = {
     "grad_accum_steps":      2,       # effective batch = batch_size × grad_accum_steps = 512
     "num_epochs":            20,      # total training epochs
     "amp_dtype":             "bfloat16",  # automatic mixed precision dtype
-    "patience":              4,       # early stopping patience (0 = disabled); monitoring
+    "patience":              5,       # early stopping patience (0 = disabled); monitoring
                                       # begins only after Phase 1 ends (see get_tf_ratio)
 }
 
@@ -84,26 +84,31 @@ _TF_SCHEDULE = {
 }
 
 # ── LR Scheduler ──────────────────────────────────────────────────────────────
-# Cosine annealing with linear warmup (replaces ReduceLROnPlateau).
+# ReduceLROnPlateau — the adaptive strategy proven on the original RTX 3090 run.
 #
-# Rationale: ReduceLROnPlateau was premature-triggering during the old TF=1.0 phase
-# (flat/climbing val loss) and wasting the LR budget before TF annealing where
-# the model most needs to adapt. A cosine schedule is deterministic and
-# well-matched to a fixed epoch budget; warmup avoids large initial gradients.
+# Rationale: cosine+warmup is untested on this architecture and consumes
+# ~500 warm-up steps before the model learns anything. ReduceLROnPlateau is
+# adaptive: it only halves LR when validation loss stalls, which is the right
+# signal for a seq2seq model where val loss depends strongly on the TF regime.
 #
-# scheduler.step() is called once per OPTIMIZER STEP (not per epoch) in train_epoch().
+# NOTE: The Phase 2 reset (best_val_loss=inf at epoch phase1_end+1) prevents
+# premature halving during the TF=1.0 phase — plateau patience starts fresh
+# when TF annealing begins.
+#
+# scheduler.step(val_loss) is called ONCE PER EPOCH after validation.
 _LR_SCHEDULER = {
-    "lr_warmup_steps": 500,   # linear warmup: LR ramps from ~0 → peak over this many steps
-    "lr_min":          1e-5,  # cosine annealing floor (tail of decay)
+    "lr_patience":     3,     # epochs of no improvement before halving LR
+    "lr_factor":       0.5,   # multiplicative factor applied on plateau
+    "lr_min":          1e-5,  # absolute lower bound on LR
 }
 
 # ── Loss ──────────────────────────────────────────────────────────────────────
-# Label smoothing is ON at 0.1.
-# With the new TF schedule, TF=1.0 only lasts 5 epochs (not 15), so the model
-# spends most of training in the annealing/maturation phases where preventing
-# overconfident token predictions directly improves autoregressive generation.
+# Label smoothing OFF (0.0) — keeping the original RTX 3090 setting.
+# Smoothing is confounded with TF schedule changes in the A100 run; its effect
+# cannot be isolated. Test as a separate ablation after establishing the TF
+# schedule baseline.
 _LOSS = {
-    "label_smoothing":       0.1,
+    "label_smoothing":       0.0,
 }
 
 # ── Data ──────────────────────────────────────────────────────────────────────
@@ -208,30 +213,19 @@ def set_seed(seed: int = 42) -> None:
 def get_a100_overrides() -> dict:
     """Config overrides for A100 80GB GPU full training.
 
-    These replace the conservative defaults in CONFIG, which were chosen for
-    local consumer-GPU testing. Key rationale:
+    IMPORTANT: batch_size and grad_accum_steps are intentionally NOT changed.
+    Empirical evidence from runs 1 and 2:
+      - RTX 3090, batch=512 (256×2):  86,200 optimizer steps → val_loss 5.997 ✓
+      - A100,     batch=4096 (4096×1): 5,380 optimizer steps → val_loss 6.570 ✗
+    The 16× reduction in optimizer steps crippled convergence regardless of GPU
+    throughput gains. Batch 512 stays.  The only A100 override is data loading.
 
-      batch_size=3072:
-        Peak GPU memory observed at batch=2048 was 35 GB / 80 GB (44%).
-        Increasing to 3072 uses ~52 GB — comfortable headroom for variable-length
-        batch spikes — and cuts steps-per-epoch from ~538 to ~359, improving
-        throughput by ~50%. 4096 is risky (~69 GB, only 11 GB headroom).
-
-      grad_accum_steps=1:
-        With a true batch of 1024 there is no reason to accumulate — it wastes
-        memory on stale partial gradients. Effective batch = 1024.
-
-      num_workers=4:
-        The dataset is fully in-memory (no I/O), so workers handle collation
-        and padding asynchronously, keeping the GPU fed between steps. 4 is the
-        sweet spot for Colab A100 (~12 vCPUs); more workers can cause instability.
-
-    If OOM is observed (unlikely), fall back to batch_size=512, grad_accum_steps=2.
+    num_workers=4:
+        Handles collation and padding asynchronously, keeping the GPU fed.
+        4 is the sweet spot for Colab A100 (~12 vCPUs).
     """
     return {
-        "batch_size":       4096,   # A100 max push: ~69 GB est. on 80 GB — if OOM drop to 3072
-        "grad_accum_steps": 1,
-        "num_workers":      4,
+        "num_workers": 4,
     }
 
 def get_tf_ratio(epoch: int, config: dict) -> float:
