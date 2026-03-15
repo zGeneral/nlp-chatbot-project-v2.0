@@ -358,6 +358,20 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     config = dict(config)
     config["_model_type"] = model_type
 
+    # Attention decoder stores encoder_outputs [batch, src_len, enc_hidden_dim]
+    # and attention weights [batch, src_len] at every decode step — substantially
+    # more per-step GPU memory than the baseline's fixed context vector.
+    # Halve the micro-batch and double gradient accumulation so effective batch
+    # size (and gradient dynamics) remain identical to the baseline.
+    if model_type == "attention":
+        actual_batch = config["batch_size"] // 2
+        actual_accum = config["grad_accum_steps"] * 2
+        config["batch_size"] = actual_batch
+        config["grad_accum_steps"] = actual_accum
+        print(f"[{model_type}] Adjusted for attention memory: "
+              f"batch={actual_batch} × accum={actual_accum} = "
+              f"{actual_batch * actual_accum} effective")
+
     # ── 1. Data ──────────────────────────────────────────────────────────────
     # FIX M6 — exact call as specified in INTERFACES.md §4
     train_loader, val_loader, _ = build_dataloaders(
@@ -501,6 +515,19 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         writer.add_scalar("tf_ratio", tf_ratio, epoch)
 
         # 7f. Save best checkpoint (atomic: write .tmp then os.replace).
+        # Reset best_val_loss at the Phase 2 boundary.  When TF drops at
+        # epoch phase1_end+1, the decoder switches from ground-truth to its
+        # own predictions, causing a discontinuous jump in validation loss.
+        # Comparing against the TF=1.0 best is unfair — the model needs
+        # several epochs to recover and potentially surpass it.  Resetting
+        # here gives it a clean baseline for the annealing phase.
+        _phase1_end = config["tf_schedule"]["phase1_end"]
+        if epoch == _phase1_end + 1:
+            best_val_loss = float("inf")
+            _no_improve = 0
+            print(f"[{model_type}] Phase 2 begins (epoch {epoch}) — "
+                  f"resetting best_val_loss and early-stopping counter")
+
         # Capture improvement BEFORE updating best_val_loss so early stopping
         # can use the same flag (avoids off-by-one: after the update,
         # val_loss == best_val_loss which would look like "no improvement").
@@ -727,6 +754,16 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
     print("  TRAINING: baseline (no attention)")
     print("=" * 70)
     baseline_history = train_model("baseline", active_cfg, device)
+
+    # Clear GPU cache between models.  After baseline training the CUDA
+    # allocator holds ~55-70 GB of cached-but-unused blocks.  The attention
+    # model needs more per-step memory (attention weight tensors over the full
+    # source sequence) and can OOM due to fragmentation even though total
+    # capacity is sufficient.
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        print("  GPU cache cleared between models.")
 
     # ── Separator ────────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
