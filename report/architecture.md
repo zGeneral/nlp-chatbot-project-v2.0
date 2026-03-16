@@ -21,17 +21,6 @@ then fine-tuned during training. Embedding dropout: 0.30.
 A 2-layer bidirectional LSTM reads the source token sequence and
 produces per-timestep hidden states and final states.
 
-```
-Token IDs  →  Embedding(300)  →  Dropout(0.30)
-                                        │
-              ┌─────────────────────────┴─────────────────────────┐
-              │  BiLSTM  ×2 layers  (hidden=512/dir, drop=0.50)   │
-              └──────────────────┬─────────────────────────────────┘
-                                 │
-               encoder_outputs [B, T_src, 1024]      (→ Attention)
-               h_n, c_n  [4, B, 512]  interleaved    (→ Bridge)
-```
-
 *Parameter count: 14 433 792*
 
 ---
@@ -43,13 +32,13 @@ states. Forward and backward layer-pair states are concatenated
 (512+512 = 1024) then passed through a linear+tanh projection per
 layer, yielding `h_0, c_0` of shape `[2, B, 1024]`.
 
-```
-h_n [fwd_L0, bwd_L0, fwd_L1, bwd_L1]
-        │                │
-   cat per layer  →  Linear(1024→1024)  →  tanh  →  decoder h_0, c_0
-```
-
 *Parameter count: 2 099 200*
+
+---
+
+![Figure A1 — Full architecture overview: Baseline (left) vs Attention (right)](figures/fig_a1_architecture_overview.png)
+
+*Figure A1: Side-by-side architecture overview. Both models share the same encoder, bridge, bottleneck, and output head. The only difference is the decoder's context source: a fixed last-timestep vector (baseline) vs a dynamically recomputed Bahdanau attention vector (attention).*
 
 ---
 
@@ -59,23 +48,13 @@ The context is fixed: the last encoder timestep `encoder_outputs[:, −1, :]`
 is concatenated to every embedded input token and held constant
 throughout decoding.
 
-```
-y_{t-1}  →  Embedding(300)  →  Dropout(0.30)
-                                      │
-                         cat([embed ; ctx_fixed])  →  [1324]
-                                      │
-                    2-layer LSTM (hidden=1024, drop=0.50)
-                                      │
-                         cat([lstm_out ; ctx_fixed])  →  [2048]
-                                      │
-                    Linear(2048→512)  →  tanh  →  Dropout(0.40)
-                                      │
-                         Linear(512→16 000)  →  logits
-```
-
 *Parameter count: 32 079 488* — the `Linear(512→16 000)` output head
 accounts for 8.2 M; the 2048→512 bottleneck avoids a costly direct
 2048×16 000 projection (would add 24 M parameters).
+
+![Figure A2 — Baseline decoder: single timestep data flow](figures/fig_a2_baseline_decoder.png)
+
+*Figure A2: Baseline decoder at one timestep. The orange ctx\_fixed vector (encoder last timestep) is concatenated to the embedded input before the LSTM and again after, then passed through the bottleneck projection to logits. It never changes — the decoder has no mechanism to focus on different source positions.*
 
 ---
 
@@ -84,34 +63,12 @@ accounts for 8.2 M; the 2048→512 bottleneck avoids a costly direct
 Identical to baseline except the context vector `c_t` is **recomputed
 at every step** as a weighted sum over all encoder outputs.
 
-```
-                    encoder_outputs [B, T_src, 1024]  (keys, precomputed)
-                           │
-y_{t-1} → Embedding → cat([embed ; c_{t-1}]) → [1324]
-                           │
-              2-layer LSTM (hidden=1024, drop=0.50)
-                           │
-                      top hidden  s_t [B, 1024]
-                           │
-          ┌────────────────┴──────────────────┐
-          W_dec(s_t)              W_enc(h_i)   │  (both → 256-d)
-          └──────────────── tanh ─────────────┘
-                                │
-                           v(·) → scalar e_{t,i}  per src pos
-                                │
-                           softmax  →  α_t  [B, T_src]
-                                │
-                   c_t = Σ α_{t,i} · h_i  →  [B, 1024]
-                                │
-               cat([lstm_out ; c_t])  →  [2048]
-                                │
-              Linear(2048→512) → tanh → Dropout(0.40)
-                                │
-                    Linear(512→16 000) → logits
-```
-
 Attention projection dimensions: W_enc and W_dec both map to **256**,
 keeping the energy computation lightweight (attn_dim = 256).
+
+![Figure A3 — Attention decoder: single timestep data flow (Bahdanau)](figures/fig_a3_attention_decoder.png)
+
+*Figure A3: Attention decoder at one timestep. The right-hand column (purple/red) shows the Bahdanau mechanism: W\_dec(s\_t) and precomputed W\_enc(h\_i) keys combine to produce per-position energies, softmax normalises them to α\_t, and the weighted sum over encoder outputs gives c\_t. Crucially, c\_t is carried back as c\_{t-1} for the next step, and the LSTM receives the previous c\_t concatenated with the embedded token as its input — context informs generation before the recurrent step.*
 
 ---
 
@@ -160,6 +117,10 @@ Embedding shared between encoder and decoder; counted once in the total.
 
 The attention mechanism adds only **524 544 parameters (<1.2% overhead)**
 while giving the decoder full dynamic access to all encoder states.
+
+![Figure A4 — Parameter breakdown: stacked bars and attention overhead](figures/fig_a4_parameter_breakdown.png)
+
+*Figure A4: Left — stacked bar showing contribution of each component to total parameter count (Embedding 4.8M, Encoder BiLSTM 9.6M, Bridge 2.1M, Decoder LSTM 18.0M, Bottleneck+Output 9.3M). Right — donut showing the attention overhead (524,544 params) is only 1.2% of the total 44.3M.*
 
 ---
 
@@ -260,64 +221,24 @@ Padding positions are masked before reduction. Label smoothing = 0.0 (off).
 
 ### C.1 Baseline — Complete Forward Pass
 
-```
-INPUT
-  src_ids [B, T_src]  ──────────────────────────────────────────────────┐
-  trg_ids [B, T_trg]  (teacher-forced during training)                   │
-                                                                          │
-ENCODER                                                                   │
-  Embedding(src_ids) → [B, T_src, 300] → Dropout(0.30)                  │
-  BiLSTM L1: input [B,T,300]  → hidden [B,T,1024], states [4,B,512]     │
-  BiLSTM L2: input [B,T,1024] → output [B,T,1024], states [4,B,512]     │
-  encoder_outputs [B, T_src, 1024]                                        │
-  h_n, c_n [4, B, 512]  (interleaved fwd/bwd per layer)                 │
-                                                                          │
-BRIDGE                                                                    │
-  fwd = h_n[0::2], bwd = h_n[1::2]                                      │
-  h_dec = tanh(Linear(cat(fwd,bwd,dim=2)))  → [2, B, 1024]             │
-  c_dec = tanh(Linear(cat(fwd_c,bwd_c)))    → [2, B, 1024]             │
-                                                                          │
-DECODER  (unrolled over T_trg steps)                                     │
-  ctx_fixed = encoder_outputs[:, -1, :]  → [B, 1024]  ◄────────────────┘
-  ┌─────────────────────────────────────────────────────┐
-  │  for t in 1 .. T_trg:                               │
-  │    embed = Embedding(y_{t-1}) → [B, 300]            │
-  │    inp   = cat([embed, ctx_fixed]) → [B, 1324]      │
-  │    h, c  = LSTM(inp, h_prev, c_prev)                │
-  │    out   = cat([h[-1], ctx_fixed]) → [B, 2048]      │
-  │    out   = Dropout(tanh(Linear(out, 2048→512)))      │
-  │    logit = Linear(out, 512→16000)                   │
-  └─────────────────────────────────────────────────────┘
-  logits [B, T_trg, 16000]  →  CrossEntropyLoss (pad masked)
-```
+See Figure A1 (overview) and Figure A2 (single decoder timestep) for the full data flow. The key operational sequence is:
+
+1. **Encoder**: `src_ids → Embedding → BiLSTM ×2` → `encoder_outputs [B, T_src, 1024]` and `h_n, c_n [4, B, 512]`
+2. **Bridge**: concatenate fwd/bwd final states per layer → `Linear(1024→1024) → tanh` → `h_0, c_0 [2, B, 1024]`
+3. **Decoder loop** (T_trg steps): `ctx_fixed = encoder_outputs[:, −1, :]` (constant), each step: `cat([embed, ctx_fixed]) → LSTM → cat([s_t, ctx_fixed]) → bottleneck → logits`
+4. **Loss**: padded cross-entropy over `logits [B, T_trg, 16000]`
 
 ### C.2 Attention — Differences from Baseline
 
-```
-DECODER  (attention additions marked with >>>)
+See Figure A3 for the single-step attention data flow. The attention additions relative to the baseline (marked `>>>`) are:
 
-  >>> keys = W_enc(encoder_outputs)  [B, T_src, 256]  ← precomputed once
-
-  c_prev = zeros [B, 1024]  ← initialised before loop
-
-  ┌──────────────────────────────────────────────────────────────────┐
-  │  for t in 1 .. T_trg:                                            │
-  │    embed = Embedding(y_{t-1}) → [B, 300]                         │
-  │    inp   = cat([embed, c_prev]) → [B, 1324]                      │
-  │    h, c  = LSTM(inp, h_prev, c_prev_lstm)                        │
-  │                                                                   │
-  │  >>> query  = W_dec(h[-1])   → [B, 256]                          │
-  │  >>> energy = v(tanh(keys + query.unsqueeze(1))) → [B, T_src, 1] │
-  │  >>> energy.masked_fill(pad_mask, -inf)                          │
-  │  >>> alpha  = softmax(energy, dim=1)  → [B, T_src, 1]           │
-  │  >>> c_t    = (alpha * encoder_outputs).sum(dim=1) → [B, 1024]  │
-  │                                                                   │
-  │    out   = cat([h[-1], c_t]) → [B, 2048]                        │
-  │    out   = Dropout(tanh(Linear(out, 2048→512)))                  │
-  │    logit = Linear(out, 512→16000)                                │
-  │    c_prev = c_t                                                   │
-  └──────────────────────────────────────────────────────────────────┘
-```
+- `>>> keys = W_enc(encoder_outputs) [B, T_src, 256]` — precomputed once before the loop
+- `>>> c_prev = zeros [B, 1024]` — initialised before the loop, carried forward each step
+- Each step: `embed` concatenated with `c_prev` (not `ctx_fixed`) as LSTM input
+- `>>> query = W_dec(h[-1]) → [B, 256]`
+- `>>> energy = v(tanh(keys + query.unsqueeze(1))) → [B, T_src, 1]` then pad-masked and softmaxed to `α_t`
+- `>>> c_t = (α_t × encoder_outputs).sum(dim=1) → [B, 1024]`
+- `c_prev = c_t` at end of each step
 
 ---
 
@@ -351,15 +272,9 @@ the cost of computing attention over T_src positions at every decoder step.
 **Why Bahdanau attention and not Luong attention?**  
 The two mechanisms differ in three fundamental ways:
 
-```
-Bahdanau (additive, 2015)          Luong (multiplicative, 2015)
-─────────────────────────          ────────────────────────────
-Query: s_{t-1}  (BEFORE step)      Query: s_t  (AFTER step)
-Score: v·tanh(W_enc·h + W_dec·s)   Score: s_t · h_i  (dot)
-                                          or s_t·W·h_i (general)
-Projection: both → attn_dim=256    No projection (dot product)
-Context: fed INTO LSTM step        Context: fed AFTER LSTM step
-```
+![Figure A5 — Bahdanau vs Luong attention design comparison](figures/fig_a5_bahdanau_vs_luong.png)
+
+*Figure A5: Side-by-side comparison of the two attention mechanisms across five design dimensions. Green cells indicate the Bahdanau advantage; the yellow cell highlights the Luong softmax saturation risk at 1024-d without explicit √d scaling.*
 
 Four reasons drove the choice of Bahdanau for this model:
 
