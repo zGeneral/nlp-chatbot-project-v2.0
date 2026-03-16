@@ -2,7 +2,7 @@
 render_to_png.py
 Renders .excalidraw files to PNG using matplotlib.
 Handles: rectangles, text, arrows (including multi-point).
-Usage: python excalidraw/render_to_png.py
+Usage: python report/excalidraw/render_to_png.py
 """
 import json, math, sys
 from pathlib import Path
@@ -15,8 +15,9 @@ from matplotlib.patheffects import withStroke
 import matplotlib.patheffects as pe
 import numpy as np
 
-OUT_DIR   = Path("C:/git/nlp-chatbot-project-v2.0/report/figures")
-SRC_DIR   = Path("C:/git/nlp-chatbot-project-v2.0/excalidraw")
+_THIS_DIR = Path(__file__).parent                  # report/excalidraw/
+OUT_DIR   = _THIS_DIR.parent / "figures"           # report/figures/
+SRC_DIR   = _THIS_DIR                              # report/excalidraw/
 DPI       = 150
 PAD       = 40          # canvas padding in excalidraw px
 

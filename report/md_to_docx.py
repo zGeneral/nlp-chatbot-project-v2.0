@@ -1,6 +1,6 @@
 """
 md_to_docx.py  —  Convert a Markdown report to a .docx Word document.
-Usage: python md_to_docx.py [input.md [output.docx]]
+Usage: python report/md_to_docx.py [input.md [output.docx]]
        Defaults to report/architecture.md → report/architecture.docx
 """
 
@@ -12,8 +12,8 @@ from docx.shared import Pt, Inches, Cm, RGBColor
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-_default_md  = Path(__file__).parent / "report" / "architecture.md"
-_default_out = Path(__file__).parent / "report" / "architecture.docx"
+_default_md  = Path(__file__).parent / "architecture.md"
+_default_out = Path(__file__).parent / "architecture.docx"
 
 if len(sys.argv) >= 2:
     MD_PATH  = Path(sys.argv[1])

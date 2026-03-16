@@ -483,8 +483,9 @@ def fig6_summary_table(h_base: dict, h_att: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate training performance figures")
     parser.add_argument(
-        "--checkpoint-dir", default="checkpoints",
-        help="Directory containing *_best.pt / *_last.pt files (default: checkpoints/)",
+        "--checkpoint-dir",
+        default=str(Path(os.path.dirname(__file__)).parent / "checkpoints"),
+        help="Directory containing *_best.pt / *_last.pt files (default: <project_root>/checkpoints/)",
     )
     parser.add_argument(
         "--demo", action="store_true",

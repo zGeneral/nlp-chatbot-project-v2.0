@@ -50,7 +50,7 @@ attention rather than training regime differences.
 
 *Figure TM1: Training loop structure. The outer Cisco Blue zone is the epoch loop; the inner Medium Blue zone is the batch loop. The red box marks the NaN guard that skips corrupt batches without updating weights. The decoder zone reset at epoch 6 grants Phase 2 its own independent convergence window.*
 
-> **Excalidraw source:** `excalidraw/fig_tm1_training_loop.excalidraw`
+> **Excalidraw source:** `report/excalidraw/fig_tm1_training_loop.excalidraw`
 
 ![Figure 1 — Training and validation loss curves](figures/fig1_loss_curves.png)
 
@@ -91,7 +91,7 @@ own previous prediction (autoregressive / free-running).
 
 *Figure TM2: Three-phase teacher forcing schedule. Phase 1 (Cisco Blue, epochs 1–5): TF fixed at 1.00 for stable early convergence. Phase 2 (Medium Blue, epochs 6–12): linear decay 0.90 → 0.50 to close exposure bias. Phase 3 (grey, epochs 13–20): floor at 0.50 for mixed supervision.*
 
-> **Excalidraw source:** `excalidraw/fig_tm2_tf_phases.excalidraw`
+> **Excalidraw source:** `report/excalidraw/fig_tm2_tf_phases.excalidraw`
 
 | Phase | Epochs | TF Ratio | Purpose |
 |---|---|---|---|
@@ -141,7 +141,7 @@ double the effective batch without exceeding memory:
 
 *Figure TM3: Gradient accumulation over 2 steps. Batch 0 (Cisco Blue) and Batch 1 (Medium Blue) each run a forward pass and accumulate gradients (loss divided by 2). After both batches, a single clip + optimizer.step() + zero\_grad updates weights with a gradient equivalent to a 512-sample batch.*
 
-> **Excalidraw source:** `excalidraw/fig_tm3_grad_accum.excalidraw`
+> **Excalidraw source:** `report/excalidraw/fig_tm3_grad_accum.excalidraw`
 
 Loss is divided by `grad_accum_steps = 2` before `.backward()` so
 accumulated gradients equal the mean over 512 samples. The unscaled
@@ -201,7 +201,7 @@ bias. The reset grants Phase 2 its own independent convergence window.
 
 *Figure TM4: Early stopping is disabled in Phase 1 (epochs 1–5). From epoch 6 onward, each epoch either resets the counter (val\_loss improved, Cisco Blue) or increments it (no improvement). Once the counter reaches 4, training halts. The counter and best\_val\_loss are reset at epoch 6 to give Phase 2 its own convergence window.*
 
-> **Excalidraw source:** `excalidraw/fig_tm4_early_stopping.excalidraw`
+> **Excalidraw source:** `report/excalidraw/fig_tm4_early_stopping.excalidraw`
 
 ![Figure 4 — Overfitting gap](figures/fig4_overfit_gap.png)
 

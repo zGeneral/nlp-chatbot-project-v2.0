@@ -10,7 +10,7 @@ Figures produced (saved to report/figures/ as PNG + PDF at 300 DPI):
   fig_p6  — Temporal train/val/test split timeline
 
 Usage:
-    python plot_phase1.py
+    python report/plot_phase1.py
 """
 
 import json
@@ -24,9 +24,10 @@ import matplotlib.ticker as mticker
 import numpy as np
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-ROOT       = Path(__file__).parent
+_SCRIPT_DIR = Path(__file__).parent      # report/
+ROOT        = _SCRIPT_DIR.parent         # project root
 ARTIFACTS  = ROOT / "artifacts"
-FIG_DIR    = ROOT / "report" / "figures"
+FIG_DIR    = _SCRIPT_DIR / "figures"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Shared style (matches evaluation/training figures) ──────────────────────

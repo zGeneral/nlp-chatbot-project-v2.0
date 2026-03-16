@@ -10,7 +10,7 @@ Figures produced (report/figures/, PNG + PDF at 300 DPI):
   fig_a5  — Bahdanau vs Luong attention comparison table
 
 Usage:
-    python plot_architecture.py
+    python report/plot_architecture.py
 """
 
 import os
@@ -27,8 +27,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch
 
-ROOT    = Path(__file__).parent
-FIG_DIR = ROOT / "report" / "figures"
+ROOT    = Path(__file__).parent        # report/
+FIG_DIR = ROOT / "figures"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Palette ───────────────────────────────────────────────────────────────────

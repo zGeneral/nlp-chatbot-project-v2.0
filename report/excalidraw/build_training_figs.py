@@ -6,7 +6,7 @@ import json
 import math
 from pathlib import Path
 
-OUT_DIR = Path("C:/git/nlp-chatbot-project-v2.0/excalidraw")
+OUT_DIR = Path(__file__).parent   # report/excalidraw/
 
 # ─────────────────────── Cisco Brand Palette ────────────────────────
 C_ENC    = "#02C8FF"

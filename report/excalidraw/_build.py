@@ -1,4 +1,7 @@
 import json, math
+from pathlib import Path
+
+_THIS_DIR = Path(__file__).parent   # report/excalidraw/
 
 def tw(text, fs):
     longest = max(len(l) for l in text.split('\n'))
@@ -107,7 +110,7 @@ doc = {
     "files": {}
 }
 
-out = "excalidraw/baseline_architecture.excalidraw"
+out = str(_THIS_DIR / "baseline_architecture.excalidraw")
 with open(out, "w", encoding="utf-8") as f:
     json.dump(doc, f, ensure_ascii=False, indent=2)
 
