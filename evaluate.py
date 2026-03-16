@@ -34,6 +34,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+# Suppress noisy INFO logs from transformers/bert_score (UNEXPECTED key warnings
+# are expected when loading DistilBERT as a plain encoder without the MLM head).
+import logging
+logging.getLogger("transformers").setLevel(logging.ERROR)
+logging.getLogger("bert_score").setLevel(logging.ERROR)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Decoding
