@@ -7,12 +7,6 @@ Produces per run:
   - attention_manual_samples.json
   - attention_heatmap.png    Bahdanau attention weight heatmap (attention model only)
 
-Benchmark reference (osamadev/seq2seq-chatbot — LSTM+ATTN, greedy, 8k SP vocab):
-  BLEU-1: 0.4400   BLEU-4: 0.1386   ROUGE-L F1: 0.0922
-  NOTE (F3): direct numeric comparison invalid — different tokeniser (8k SentencePiece
-  vs our 16k), different vocab size, and different data split. Use as directional
-  reference only; report with this disclaimer in write-up.
-
 Metric rationale (G1 / Liu et al. 2016):
   BLEU alone is insufficient for open-domain dialogue. We additionally report:
     Distinct-1/2  — response diversity (G2 / R5)
@@ -57,7 +51,7 @@ def greedy_decode(
 ) -> List[List[int]]:
     """
     Greedy decode a batch. Returns list of token ID lists (no padding, no EOS).
-    Used for BLEU computation — matches osamadev benchmark methodology (F3).
+    Used for BLEU computation with sacrebleu 13a tokeniser.
     """
     model.eval()
     src = src.to(device)
@@ -251,9 +245,8 @@ def compute_bleu_corpus(
     Corpus-level evaluation: BLEU-1/2/3/4 (sacrebleu 13a), ROUGE-L, Distinct-1/2,
     BERTScore F1.
 
-    Uses greedy decoding (fair comparison with osamadev benchmark — F3).
-    sacrebleu 13a tokeniser applied to decoded strings (F3).
-    Bootstrap CIs available via sacrebleu; logged to console (G5).
+    Uses greedy decoding for reproducible corpus-level metrics.
+    sacrebleu 13a tokeniser applied to decoded strings.
     """
     hypotheses_str: List[str] = []
     references_str: List[str] = []
@@ -288,10 +281,9 @@ def compute_bleu_corpus(
         tokenize="13a",
         force=True,
     )
-    # BLEU-1/2/3 are independent corpus_bleu calls with use_effective_order=True
-    # so each N-gram order has its own brevity penalty (consistent with the
-    # osamadev benchmark methodology — AC2-I2). sacrebleu 2.x dropped
-    # max_ngram_order; use BLEU(max_ngram_order=N) directly instead.
+    # BLEU-1/2/3 are independent corpus_bleu calls so each N-gram order has
+    # its own brevity penalty (AC2-I2). sacrebleu 2.x dropped max_ngram_order
+    # from corpus_bleu(); use BLEU(max_ngram_order=N) directly instead.
     from sacrebleu.metrics import BLEU as _BLEU
     bleu1 = _BLEU(max_ngram_order=1, tokenize="13a", force=True).corpus_score(
         hypotheses_str, [references_str]).score / 100
@@ -615,16 +607,13 @@ def run_evaluation(
 
     # ── Comparison table ──────────────────────────────────────────────────────
     print("\n" + "=" * 70)
-    print(f"{'Metric':<20} {'Baseline':>12} {'Attention':>12} {'Reference*':>12}")
+    print(f"{'Metric':<20} {'Baseline':>12} {'Attention':>12}")
     print("-" * 70)
-    ref = {"bleu1": 0.4400, "bleu4": 0.1386, "rougeL_f1": 0.0922}
     for metric in ("bleu1", "bleu2", "bleu3", "bleu4", "rougeL_f1", "distinct1", "distinct2", "bertscore_f1"):
         b_val = all_bleu.get("baseline", {}).get(metric, "—")
         a_val = all_bleu.get("attention", {}).get(metric, "—")
-        r_val = ref.get(metric, "—")
-        print(f"  {metric:<18} {str(b_val):>12} {str(a_val):>12} {str(r_val):>12}")
+        print(f"  {metric:<18} {str(b_val):>12} {str(a_val):>12}")
     print("=" * 70)
-    print("* Reference: osamadev/seq2seq-chatbot (8k SP, greedy) — directional only (F3)")
 
     # ── Report figures ────────────────────────────────────────────────────────
     if len(all_bleu) >= 1:
@@ -672,8 +661,6 @@ def _eval_apply_style() -> None:
 _EVAL_PALETTE = {
     "baseline":  "#2C7BB6",
     "attention": "#D7191C",
-    "ref":       "#4DAC26",   # green for reference bar
-    "grid":      "#CCCCCC",
 }
 
 
@@ -705,7 +692,6 @@ def plot_evaluation_figures(all_bleu: Dict[str, Dict], checkpoint_dir: Path) -> 
 
     b = all_bleu.get("baseline",  {})
     a = all_bleu.get("attention", {})
-    ref = {"bleu1": 0.4400, "bleu4": 0.1386, "rougeL_f1": 0.0922}
 
     # ── Figure 6: Full metric comparison bar chart ────────────────────────────
     metrics_display = [
@@ -741,20 +727,7 @@ def plot_evaluation_figures(all_bleu: Dict[str, Dict], checkpoint_dir: Path) -> 
                         f"{val:.3f}", ha="center", va="bottom",
                         fontsize=7, rotation=45)
 
-    # Reference markers (only for metrics where reference exists)
-    ref_positions = {k: i for i, (k, _) in enumerate(metrics_display) if k in ref}
-    for k, xi in ref_positions.items():
-        ax.hlines(ref[k], xi - 0.45, xi + 0.45,
-                  colors=_EVAL_PALETTE["ref"], lw=1.5, ls="--", zorder=5)
-
-    # Legend entry for reference line
-    from matplotlib.lines import Line2D
-    legend_handles = [
-        plt.Rectangle((0, 0), 1, 1, color=c, alpha=0.85)
-        for _, _, c in models_present
-    ] + [Line2D([0], [0], color=_EVAL_PALETTE["ref"], lw=1.5, ls="--")]
-    legend_labels = [lbl.capitalize() for lbl, _, _ in models_present] + ["Reference (osamadev)*"]
-    ax.legend(legend_handles, legend_labels, loc="upper right", framealpha=0.9)
+    ax.legend(loc="upper right", framealpha=0.9)
 
     ax.set_xticks(list(x))
     ax.set_xticklabels([lbl for _, lbl in metrics_display], rotation=15, ha="right")
@@ -764,16 +737,12 @@ def plot_evaluation_figures(all_bleu: Dict[str, Dict], checkpoint_dir: Path) -> 
     ax.yaxis.grid(True, alpha=0.5)
     ax.set_axisbelow(True)
 
-    fig.text(0.01, -0.04,
-             "* Reference: osamadev/seq2seq-chatbot (8k SP vocab, greedy decode) — directional only",
-             fontsize=7, color="#666666")
     _eval_save(fig, figures_dir, "fig6_metric_comparison")
     plt.close(fig)
 
     # ── Figure 7: BLEU-1/2/3/4 breakdown ─────────────────────────────────────
     bleu_metrics = [("bleu1", "BLEU-1"), ("bleu2", "BLEU-2"),
                     ("bleu3", "BLEU-3"), ("bleu4", "BLEU-4")]
-    ref_bleu = {"bleu1": 0.4400, "bleu4": 0.1386}
 
     fig, ax = plt.subplots(figsize=(7, 4))
     x2 = range(len(bleu_metrics))
@@ -787,10 +756,6 @@ def plot_evaluation_figures(all_bleu: Dict[str, Dict], checkpoint_dir: Path) -> 
                 ax.text(bar.get_x() + bar.get_width() / 2,
                         bar.get_height() + 0.002,
                         f"{val:.3f}", ha="center", va="bottom", fontsize=8)
-
-    for k, xi in [(k, i) for i, (k, _) in enumerate(bleu_metrics) if k in ref_bleu]:
-        ax.hlines(ref_bleu[k], xi - 0.45, xi + 0.45,
-                  colors=_EVAL_PALETTE["ref"], lw=1.5, ls="--", zorder=5)
 
     ax.set_xticks(list(x2))
     ax.set_xticklabels([lbl for _, lbl in bleu_metrics])
