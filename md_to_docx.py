@@ -145,6 +145,32 @@ def convert(md_path: Path, out_path: Path):
                 flush_table(doc, table_rows)
                 table_rows = []
 
+        # ── image  ![caption](path) ───────────────────────────
+        m_img = re.match(r"^!\[([^\]]*)\]\(([^)]+)\)", stripped)
+        if m_img:
+            caption  = m_img.group(1)
+            img_path = Path(m_img.group(2))
+            # Resolve relative to the MD file's directory
+            if not img_path.is_absolute():
+                img_path = md_path.parent / img_path
+            if img_path.exists():
+                doc.add_picture(str(img_path), width=Inches(5.5))
+                last_para = doc.paragraphs[-1]
+                last_para.alignment = 1  # WD_ALIGN_PARAGRAPH.CENTER
+                if caption:
+                    cap = doc.add_paragraph(caption)
+                    cap.alignment = 1
+                    cap.paragraph_format.space_before = Pt(2)
+                    cap.paragraph_format.space_after  = Pt(10)
+                    cap.runs[0].font.size   = Pt(9)
+                    cap.runs[0].font.italic = True
+            else:
+                p = doc.add_paragraph()
+                run = p.add_run(f"[Figure not found: {img_path.name}]")
+                run.font.italic = True
+                run.font.color.rgb = RGBColor(0xAA, 0x00, 0x00)
+            continue
+
         # ── heading ───────────────────────────────────────────
         m = re.match(r"^(#{1,4})\s+(.*)", stripped)
         if m:
