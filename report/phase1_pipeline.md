@@ -44,7 +44,11 @@ stage8_embedding_matrix.npy           [16,000 × 300] float32   (18.31 MB)
 
 Each artifact is checksummed via the stage stats JSON files and can serve as a restart point. Stage 4.5 (domain filter) is optional and controlled by `domain_filter=True` in `config.py`; when disabled the pipeline feeds Stage 4 output directly to Stage 5.
 
-The total funnel reduces 1,852,868 raw dialogues to **1,103,539 training pairs** — a retention path of 59.6 % measured at the pair level. Every discarded item is counted, categorised, and written to the companion `*_stats.json` file for audit.
+The total funnel reduces 1,852,868 raw dialogues to **1,103,539 training pairs** — a retention path of 59.6 % measured at the pair level.
+
+![Figure P1 — Full data reduction funnel across all pipeline stages](figures/fig_p1_funnel.png)
+
+*Figure P1: Each bar represents the record count at the output of that stage. Blue = dialogue records; orange = context-response pairs; green = final GPU-ready dataset. Discard counts and percentages are shown inside each bar.* Every discarded item is counted, categorised, and written to the companion `*_stats.json` file for audit.
 
 Tokenisation uses **Byte Pair Encoding** (Sennrich et al., 2016) via SentencePiece, giving zero out-of-vocabulary (UNK) rate on the training corpus. Embeddings are warm-started from **FastText skip-gram** (Bojanowski et al., 2017) vectors trained on the BPE-tokenised corpus itself, achieving 99.99 % vector coverage (15,999 / 16,000 rows; the single unfilled row is `<pad>`, intentionally zeroed).
 
@@ -123,6 +127,10 @@ Each CSV row contains `dialogueID`, `folder`, `date`, `from`, `text`. Rows are g
 
 **Result:** 1,315,108 dialogues kept (71.0%)
 
+![Figure P2 — Stage 2 dialogue filter breakdown by filter type](figures/fig_p2_stage2_filters.png)
+
+*Figure P2: Contribution of each Stage 2 filter to the 537,760 discarded dialogues. Speaker dominance (43.7%) and temporal hard ceiling (32.7%) together account for three-quarters of all discards.*
+
 ---
 
 ### A.3 Stage 3 — Temporal Split
@@ -132,15 +140,17 @@ Each CSV row contains `dialogueID`, `folder`, `date`, `from`, `text`. Rows are g
 
 Dialogues are assigned to splits by their **first-turn UTC date**. No dialogue spans two splits, guaranteeing zero thread-level leakage. Overlap assertions are hard-coded and fail-fast.
 
-```
-Timeline ─────────────────────────────────────────────────────►
-  2004          2012-04-27      2012-08-07
-  │←─── TRAIN ──────────►│←─VAL─►│←── TEST ──►│
-  │   1,259,711 dialogues │ 27,550 │ 27,847     │
-  │        95.8%          │  2.1%  │   2.1%     │
-```
+| Split | Date range | Dialogues | % |
+|---|---|---|---|
+| Train | 2004 – 2012-04-27 | 1,259,711 | 95.8% |
+| Val | 2012-04-27 – 2012-08-07 | 27,550 | 2.1% |
+| Test | 2012-08-07 onwards | 27,847 | 2.1% |
 
 **Why temporal, not random?** A random split would allow the model to train on conversations from the same week as validation examples, inflating val metrics and failing to simulate real deployment (always predicting on future text). The temporal split enforces true generalisation over time.
+
+![Figure P6 — Temporal train / val / test split timeline](figures/fig_p6_temporal_split.png)
+
+*Figure P6: Val/test bands are enlarged for legibility (not to scale). Zero thread-level overlap was confirmed programmatically — no dialogue ID appears in more than one split.*
 
 ---
 
@@ -172,6 +182,10 @@ IRC speaker handles matching `[\d_\-\[\]\\^{}|]` or length > 9 are replaced with
 | Diversity cap | Same response text seen > 500× (train only) | 1,730 | 0.05% |
 
 After filtering, train pairs are randomly shuffled and capped at `max_train_pairs=1,500,000`. A sample of 200 pairs is written to `stage4_train_samples.txt` for manual inspection.
+
+![Figure P3 — Stage 4 pair filter breakdown by filter type](figures/fig_p3_stage4_filters.png)
+
+*Figure P3: Response-too-short (48.0%) and incoherent-pair (37.0%) filters account for 85% of all pair discards, reflecting the noisy nature of raw IRC dialogue. All other filters are minor by comparison.*
 
 ---
 
@@ -215,6 +229,10 @@ Only the **last 1–2 substantive turns** (≥ 4 words) of the context are scann
 | Train | 1,500,000 | 1,103,539 | 73.6% |
 | Val | 63,258 | 47,244 | 74.7% |
 | Test | 63,822 | 47,377 | 74.2% |
+
+![Figure P4 — Stage 4.5 domain filter outcome and signal overlap](figures/fig_p4_domain_filter.png)
+
+*Figure P4: Left — stacked bar showing the composition of kept pairs (command-only, both signals, question-only) vs filtered-out pairs. Right — donut chart showing the proportion of each signal category across all 1.5M input pairs. The union strategy retains 73.6% while requiring at least one domain signal.*
 
 ---
 
@@ -333,45 +351,16 @@ The matrix is loaded once at model initialisation and passed to `nn.Embedding` w
 
 ## Appendix B — Filtering Funnel
 
-```
-                  RAW CORPUS
-                  1,852,868 dialogues
-                       │
-            ┌──────────┴──────────┐
-            │    Stage 2 filters  │  −537,760  (29.0%)
-            │  • speaker dominance│  234,864
-            │  • temporal gap     │  175,962
-            │  • low alternation  │   82,045
-            │  • bot turns / paste│   (turn-level, not tracked at dlg level)
-            └──────────┬──────────┘
-                  1,315,108 dialogues
-                       │
-            ┌──────────┴──────────┐
-            │    Stage 3 split    │  no discard — assignment only
-            │  train  95.8%       │
-            │  val     2.1%       │
-            │  test    2.1%       │
-            └──────────┬──────────┘
-                  1,315,108 dialogues → pair generation
-                       │
-            ┌──────────┴──────────┐
-            │   Stage 4 filters   │
-            │  • resp too short   │  −971,906  (27.6% of raw pairs)
-            │  • incoherent pair  │  −748,826  (21.2%)
-            │  • resp too long    │  −255,579   (7.3%)
-            │  • diversity cap    │   −1,730   (0.05%)
-            │  • cap at 1.5M      │  (random truncation after shuffle)
-            └──────────┬──────────┘
-                  1,500,000 pairs (train) + 126,080 (val+test)
-                       │
-            ┌──────────┴──────────┐
-            │  Stage 4.5 domain   │  −396,461 train  (26.4%)
-            │  filter (union)     │  −28,657  val+test
-            └──────────┬──────────┘
-                  1,103,539 train / 47,244 val / 47,377 test
-                  ════════════════════════════════════════
-                       FINAL DATASET (GPU-ready JSONL)
-```
+The complete data reduction path is shown in Figure P1 (see Overview section). The step-by-step discard counts are summarised below for reference:
+
+| Stage | Records in | Records out | Discarded | % kept |
+|---|---|---|---|---|
+| Stage 2 — Clean & Filter | 1,852,868 dlg | 1,315,108 dlg | 537,760 | 71.0% |
+| Stage 3 — Split (train only) | 1,315,108 dlg | 1,259,711 dlg | 55,397 (val+test) | 95.8% of train |
+| Stage 4 — Pair filters | ~3.5M raw pairs | 1,500,000 pairs | ~2,024,293 | — |
+| Stage 4.5 — Domain filter | 1,500,000 pairs | 1,103,539 pairs | 396,461 | 73.6% |
+
+Stage 2 filter detail → Figure P2. Stage 4 filter detail → Figure P3. Stage 4.5 signal breakdown → Figure P4.
 
 ---
 
@@ -604,6 +593,10 @@ Only 2.5% of responses are truncated — the `max_resp_tokens=40` cap is comfort
 | resp truncated (> 40 tokens before EOS) | ~27,600 | 2.5% |
 | Both truncated | ~0 | 0.0% |
 | Fully within limits | ~1,075,939 | 97.5% |
+
+![Figure P5 — Stage 6 token length distributions for context and response sequences](figures/fig_p5_token_lengths.png)
+
+*Figure P5: Left — context length percentiles (train/val/test). The p95 value of 98 tokens confirms the 100-token cap is only active for the top ~5% of pairs. Right — response length percentiles. Only ~2.5% of responses reach the 40-token cap. The test split shows slightly longer sequences, consistent with the 2012 IRC period being more verbose.*
 
 **Verdict:** No context truncation occurs (phase1 hard-caps during encoding). Negligible response truncation. No configuration changes required.
 
