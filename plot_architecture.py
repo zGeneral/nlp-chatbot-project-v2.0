@@ -1,550 +1,463 @@
 """
 plot_architecture.py — Publication-quality figures for the Architecture report.
+Uses Graphviz (dot layout) for flowchart diagrams, matplotlib for charts.
 
 Figures produced (report/figures/, PNG + PDF at 300 DPI):
-  fig_a1  — Full encoder-decoder architecture overview (both models)
+  fig_a1  — Full encoder-decoder architecture overview (both models side by side)
   fig_a2  — Baseline decoder step (fixed context, single timestep)
   fig_a3  — Attention decoder step (dynamic context, Bahdanau)
-  fig_a4  — Parameter breakdown: stacked bar baseline vs attention
-  fig_a5  — Bahdanau vs Luong attention comparison table / flow
+  fig_a4  — Parameter breakdown: stacked bar + overhead donut
+  fig_a5  — Bahdanau vs Luong attention comparison table
 
 Usage:
     python plot_architecture.py
 """
 
+import os
+import sys
 from pathlib import Path
 
+# Ensure the Graphviz binaries are on PATH (winget installs here)
+os.environ["PATH"] += r";C:\Program Files\Graphviz\bin"
+
+import graphviz
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import matplotlib.patches as FancyArrow
-from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
-import matplotlib.patheffects as pe
-import numpy as np
+from matplotlib.patches import FancyBboxPatch
 
 ROOT    = Path(__file__).parent
 FIG_DIR = ROOT / "report" / "figures"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── Palette (consistent with other report figures) ────────────────────────────
-BLUE    = "#2196F3"
-LBLUE   = "#BBDEFB"
-RED     = "#F44336"
-LRED    = "#FFCDD2"
-GREEN   = "#4CAF50"
-LGREEN  = "#C8E6C9"
-ORANGE  = "#FF9800"
-LORANGE = "#FFE0B2"
-PURPLE  = "#9C27B0"
-LPURPLE = "#E1BEE7"
-TEAL    = "#009688"
-LTEAL   = "#B2DFDB"
-GREY    = "#9E9E9E"
-LGREY   = "#F5F5F5"
-DARK    = "#263238"
-WHITE   = "#FFFFFF"
+# ── Palette ───────────────────────────────────────────────────────────────────
+C_EMBED  = "#CE93D8"   # purple  — embedding
+C_ENC    = "#90CAF9"   # blue    — encoder
+C_BRIDGE = "#80CBC4"   # teal    — bridge
+C_DEC    = "#FFCC80"   # orange  — decoder (baseline)
+C_ATTN   = "#EF9A9A"   # red     — attention
+C_PROJ   = "#A5D6A7"   # green   — projection / output
+C_IO     = "#ECEFF1"   # grey    — input/output tokens
+C_OP     = "#FFF9C4"   # yellow  — cat / operation nodes
+DARK     = "#263238"
 
 plt.rcParams.update({
-    "font.family":      "DejaVu Sans",
-    "font.size":        9,
-    "figure.dpi":       150,
-    "savefig.dpi":      300,
-    "savefig.bbox":     "tight",
+    "font.family": "DejaVu Sans",
+    "font.size": 9,
+    "savefig.dpi": 300,
+    "savefig.bbox": "tight",
 })
 
 
-def _save(fig, name):
+def _save_gv(src: graphviz.Source, name: str, debug: bool = False):
+    """Render graphviz source to PNG and PDF."""
+    if debug:
+        (FIG_DIR / f"{name}.dot").write_text(src.source, encoding="utf-8")
+    out = str(FIG_DIR / name)
+    src.render(out, format="png", cleanup=True)
+    src.render(out, format="pdf", cleanup=True)
+    print(f"  Saved → {name}.png / .pdf")
+
+
+def _save_mpl(fig, name: str):
     for ext in ("png", "pdf"):
-        fig.savefig(FIG_DIR / f"{name}.{ext}")
+        fig.savefig(FIG_DIR / f"{name}.{ext}", dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved → {name}.png / .pdf")
 
 
-def _box(ax, x, y, w, h, label, sublabel=None,
-         fc=LBLUE, ec=BLUE, fontsize=9, bold=False,
-         radius=0.02, lc=DARK):
-    """Draw a rounded-rectangle box with centred label (and optional sublabel)."""
-    box = FancyBboxPatch((x - w/2, y - h/2), w, h,
-                         boxstyle=f"round,pad={radius}",
-                         facecolor=fc, edgecolor=ec, linewidth=1.4, zorder=3)
-    ax.add_patch(box)
-    fw = "bold" if bold else "normal"
-    dy = 0.012 if sublabel else 0
-    ax.text(x, y + dy, label, ha="center", va="center",
-            fontsize=fontsize, fontweight=fw, color=lc, zorder=4)
-    if sublabel:
-        ax.text(x, y - 0.028, sublabel, ha="center", va="center",
-                fontsize=fontsize - 1.5, color=GREY, zorder=4, style="italic")
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared Graphviz style helpers
+# ─────────────────────────────────────────────────────────────────────────────
+_GRAPH_ATTRS = {
+    "bgcolor": "white",
+    "fontname": "Helvetica",
+    "fontsize": "11",
+    "nodesep": "0.40",
+    "ranksep": "0.55",
+    "splines": "spline",
+    "pad": "0.55",
+    "dpi": "300",
+}
+
+_EDGE_ATTRS = {
+    "fontname": "Helvetica",
+    "fontsize": "9",
+    "color": "#546E7A",
+    "arrowsize": "0.7",
+}
+
+def _node(g, name, label, fillcolor=C_IO, shape="box",
+          fontsize="10", style="filled,rounded", width="2.2", height="0.45"):
+    g.node(name, label=label, fillcolor=fillcolor, style=style,
+           shape=shape, fontname="Helvetica", fontsize=fontsize,
+           width=width, height=height, margin="0.15,0.08")
 
 
-def _arrow(ax, x0, y0, x1, y1, color=DARK, lw=1.4, label=None,
-           label_side="right", shrink=4):
-    ax.annotate("", xy=(x1, y1), xytext=(x0, y0),
-                arrowprops=dict(arrowstyle="-|>", color=color,
-                                lw=lw, shrinkA=shrink, shrinkB=shrink))
-    if label:
-        mx, my = (x0 + x1) / 2, (y0 + y1) / 2
-        dx = 0.025 if label_side == "right" else -0.025
-        ax.text(mx + dx, my, label, fontsize=7.5, color=color,
-                ha="left" if label_side == "right" else "right", va="center",
-                style="italic")
+def _edge(g, a, b, label="", color="#546E7A", style="solid"):
+    g.edge(a, b, label=label, fontname="Helvetica", fontsize="9",
+           color=color, fontcolor=color, style=style,
+           arrowsize="0.75", penwidth="1.3")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# fig_a1 — Full architecture overview (encoder → bridge → decoder, both models)
+# fig_a1 — Side-by-side architecture overview (two sub-graphs in one image)
 # ─────────────────────────────────────────────────────────────────────────────
 def plot_overview():
-    fig, axes = plt.subplots(1, 2, figsize=(14, 7.5))
+    g = graphviz.Digraph("architecture_overview",
+                          graph_attr={**_GRAPH_ATTRS,
+                                      "rankdir": "TB",
+                                      "label": "Seq2Seq LSTM Architecture — Baseline vs Attention",
+                                      "labelloc": "t",
+                                      "fontsize": "14",
+                                      "fontname": "Helvetica-Bold",
+                                      "nodesep": "0.4",
+                                      "ranksep": "0.55"})
 
-    for col, (ax, title, is_attn) in enumerate(zip(
-            axes,
-            ["Baseline Model  (no attention)", "Attention Model  (Bahdanau)"],
-            [False, True])):
+    for model in ("baseline", "attention"):
+        pfx = "b_" if model == "baseline" else "a_"
+        is_attn = (model == "attention")
+        title = "Baseline  (no attention)" if not is_attn else "Attention  (Bahdanau)"
+        title_color = "#1565C0" if not is_attn else "#B71C1C"
 
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.axis("off")
-        ax.set_title(title, fontsize=11, fontweight="bold", pad=8,
-                     color=RED if is_attn else BLUE)
+        with g.subgraph(name=f"cluster_{model}") as sg:
+            sg.attr(label=title, fontsize="12", fontname="Helvetica-Bold",
+                    fontcolor=title_color, style="rounded",
+                    color=("#90CAF9" if not is_attn else "#EF9A9A"),
+                    penwidth="2", bgcolor="#FAFAFA")
 
-        W = 0.30   # box width
-        Hs = 0.07  # box height small
-        Hm = 0.09  # box height medium
+            # Input
+            _node(sg, pfx+"src", "src_ids  [B, T_src]",
+                  fillcolor=C_IO, shape="parallelogram", width="2.4")
 
-        # ── Token IDs (input) ────────────────────────────────────────────────
-        _box(ax, 0.5, 0.93, W, Hs, "src_ids  [B, T_src]",
-             fc=LGREY, ec=GREY, fontsize=8.5)
+            # Embedding
+            _node(sg, pfx+"emb", "Shared Embedding\n16 000 × 300  |  drop=0.30",
+                  fillcolor=C_EMBED, width="2.8")
 
-        # ── Embedding ────────────────────────────────────────────────────────
-        _box(ax, 0.5, 0.82, W, Hs, "Shared Embedding",
-             sublabel="16 000 × 300  |  drop=0.30",
-             fc=LPURPLE, ec=PURPLE)
-        _arrow(ax, 0.5, 0.895, 0.5, 0.855)
+            # BiLSTM Encoder
+            _node(sg, pfx+"enc", "BiLSTM Encoder  ×2 layers\nhidden=512/dir  |  drop=0.50\n14.4M params",
+                  fillcolor=C_ENC, width="3.0", height="0.65", fontsize="9")
 
-        # ── BiLSTM encoder ───────────────────────────────────────────────────
-        _box(ax, 0.5, 0.68, W, Hm + 0.02,
-             "Bi-LSTM Encoder  ×2 layers",
-             sublabel="hidden=512/dir  |  drop=0.50  |  14.4M params",
-             fc=LBLUE, ec=BLUE, bold=True)
-        _arrow(ax, 0.5, 0.857, 0.5, 0.723)
+            # Bridge
+            _node(sg, pfx+"bri", "Bridge\nLinear(1024→1024) ×2  |  tanh\n2.1M params",
+                  fillcolor=C_BRIDGE, width="2.8", height="0.58")
 
-        # outputs label
-        ax.text(0.5, 0.622, "encoder_outputs [B, T_src, 1024]",
-                ha="center", fontsize=7.8, color=BLUE, style="italic")
-        ax.text(0.5, 0.600, "h_n, c_n [4, B, 512]",
-                ha="center", fontsize=7.8, color=BLUE, style="italic")
+            # Decoder LSTM
+            dec_label = (
+                "Decoder LSTM  ×2 layers\nhidden=1024  |  drop=0.50\ninput: [embed ; c_t]  1324-d"
+                if is_attn else
+                "Decoder LSTM  ×2 layers\nhidden=1024  |  drop=0.50\ninput: [embed ; ctx_fixed]  1324-d"
+            )
+            dec_color = C_ATTN if is_attn else C_DEC
+            _node(sg, pfx+"dec", dec_label,
+                  fillcolor=dec_color, width="3.2", height="0.65", fontsize="9")
 
-        # ── Bridge ───────────────────────────────────────────────────────────
-        _box(ax, 0.5, 0.525, W, Hs, "Bridge",
-             sublabel="Linear(1024→1024) × 2  |  2.1M params",
-             fc=LTEAL, ec=TEAL)
-        _arrow(ax, 0.5, 0.595, 0.5, 0.560)
+            # Context node
+            if is_attn:
+                _node(sg, pfx+"attn",
+                      "Bahdanau Attention\nW_enc·h_i + W_dec·s_t → 256-d\nα_t → c_t  [B, 1024]",
+                      fillcolor=C_ATTN, shape="diamond", width="3.2", height="0.75",
+                      fontsize="9", style="filled")
+            else:
+                _node(sg, pfx+"ctx",
+                      "ctx_fixed\nencoder_outputs[:, −1, :]\n[B, 1024]  — constant",
+                      fillcolor=C_DEC, shape="note", width="2.8", height="0.65",
+                      fontsize="9")
 
-        ax.text(0.5, 0.475, "h_0, c_0  [2, B, 1024]",
-                ha="center", fontsize=7.8, color=TEAL, style="italic")
+            # Bottleneck
+            _node(sg, pfx+"proj",
+                  "Linear(2048→512) + tanh + Dropout\n→ [B, 512]",
+                  fillcolor=C_PROJ, width="3.0")
 
-        # ── Decoder label ────────────────────────────────────────────────────
-        decoder_col = RED if is_attn else ORANGE
+            # Output head
+            _node(sg, pfx+"out",
+                  "Linear(512 → 16 000)  →  logits",
+                  fillcolor=C_PROJ, width="3.0")
 
-        # Decoder input (teacher-forced token)
-        _box(ax, 0.18, 0.38, 0.22, Hs, "y_{t-1}  (prev token)",
-             fc=LGREY, ec=GREY, fontsize=8)
+            # Output token
+            _node(sg, pfx+"trg", "logits  [B, T_trg, 16 000]",
+                  fillcolor=C_IO, shape="parallelogram", width="2.8")
 
-        _box(ax, 0.18, 0.27, 0.22, Hs, "Embedding + Dropout",
-             fc=LPURPLE, ec=PURPLE, fontsize=8)
-        _arrow(ax, 0.18, 0.355, 0.18, 0.305)
+            # Edges
+            _edge(sg, pfx+"src",  pfx+"emb")
+            _edge(sg, pfx+"emb",  pfx+"enc")
+            _edge(sg, pfx+"enc",  pfx+"bri",
+                  label=" states [4,B,512]")
+            _edge(sg, pfx+"bri",  pfx+"dec",
+                  label=" h₀,c₀ [2,B,1024]")
 
-        if is_attn:
-            # Attention context path
-            # encoder_outputs → Attention block
-            _box(ax, 0.79, 0.44, 0.26, Hm,
-                 "Bahdanau Attention",
-                 sublabel="W_enc + W_dec → 256-d  |  0.5M params",
-                 fc=LRED, ec=RED, bold=True, fontsize=8.5)
+            if is_attn:
+                _edge(sg, pfx+"enc",  pfx+"attn",
+                      color="#C62828", style="dashed")
+                _edge(sg, pfx+"dec",  pfx+"attn",
+                      label=" s_t", color="#C62828", style="dashed")
+                _edge(sg, pfx+"attn", pfx+"dec",
+                      label=" c_t [B,1024]", color="#C62828")
+                _edge(sg, pfx+"dec",  pfx+"proj",
+                      label=" cat[s_t;c_t] 2048-d")
+            else:
+                _edge(sg, pfx+"enc",  pfx+"ctx",
+                      label=" last timestep", color="#E65100", style="dashed")
+                _edge(sg, pfx+"ctx",  pfx+"dec",
+                      label=" concat each step", color="#E65100")
+                _edge(sg, pfx+"dec",  pfx+"proj",
+                      label=" cat[s_t;ctx] 2048-d")
 
-            # Arrow from encoder outputs to attention (top-left of attn box)
-            ax.annotate("", xy=(0.79, 0.481), xytext=(0.65, 0.637),
-                        arrowprops=dict(arrowstyle="-|>", color=RED, lw=1.4,
-                                        connectionstyle="arc3,rad=-0.25",
-                                        shrinkA=4, shrinkB=4))
-            ax.text(0.72, 0.585, "encoder_outputs\n[B, T_src, 1024]",
-                    fontsize=7, color=RED, ha="center", style="italic")
+            _edge(sg, pfx+"proj", pfx+"out")
+            _edge(sg, pfx+"out",  pfx+"trg")
 
-            # α weights label
-            ax.text(0.79, 0.386, "α_t, c_t  [B, 1024]",
-                    ha="center", fontsize=7.5, color=RED, style="italic")
+            # Total param badge
+            total = "44,337,024" if is_attn else "43,812,480"
+            sg.node(pfx+"total",
+                    label=f"Total: {total} params",
+                    shape="plaintext", fontsize="10", fontname="Helvetica-Bold",
+                    fontcolor=title_color)
+            _edge(sg, pfx+"trg", pfx+"total", style="invis")
 
-            # arrow from attention to LSTM input merger
-            _arrow(ax, 0.79, 0.383, 0.545, 0.305, color=RED)
-            # cat label
-            ax.text(0.60, 0.32, "c_t", fontsize=7.5, color=RED, style="italic")
-
-            lstm_sublabel = "hidden=1024  |  drop=0.50  |  input=[embed;c_t] 1324-d"
-        else:
-            # Fixed context path
-            ax.annotate("", xy=(0.545, 0.27), xytext=(0.65, 0.625),
-                        arrowprops=dict(arrowstyle="-|>", color=ORANGE, lw=1.4,
-                                        connectionstyle="arc3,rad=-0.2",
-                                        shrinkA=4, shrinkB=4))
-            ax.text(0.67, 0.44, "ctx_fixed\n(last timestep)\n[B, 1024]",
-                    fontsize=7.5, color=ORANGE, ha="center", style="italic",
-                    bbox=dict(facecolor=LORANGE, edgecolor=ORANGE,
-                              boxstyle="round,pad=0.2", alpha=0.8))
-            lstm_sublabel = "hidden=1024  |  drop=0.50  |  input=[embed;ctx] 1324-d"
-
-        # ── Decoder LSTM ──────────────────────────────────────────────────────
-        _box(ax, 0.38, 0.27, 0.32, Hm,
-             "Decoder LSTM  ×2 layers",
-             sublabel=lstm_sublabel,
-             fc=LORANGE if not is_attn else LRED,
-             ec=ORANGE if not is_attn else RED,
-             bold=True, fontsize=8)
-        _arrow(ax, 0.18, 0.247, 0.22, 0.27, color=GREY)
-
-        # Bridge → decoder init
-        _arrow(ax, 0.5, 0.472, 0.44, 0.31, color=TEAL)
-        ax.text(0.435, 0.40, "h_0, c_0", fontsize=7.5, color=TEAL,
-                ha="right", style="italic")
-
-        # ── Bottleneck projection ─────────────────────────────────────────────
-        _box(ax, 0.38, 0.155, W, Hs,
-             "Linear(2048→512) + tanh + Dropout",
-             sublabel="cat([s_t ; c_t])  →  512-d",
-             fc=LGREEN, ec=GREEN, fontsize=8)
-        _arrow(ax, 0.38, 0.247, 0.38, 0.19)
-
-        # ── Output head ───────────────────────────────────────────────────────
-        _box(ax, 0.38, 0.055, W, Hs,
-             "Linear(512 → 16 000)  →  logits",
-             sublabel="8.2M params  |  vocab softmax",
-             fc=LGREEN, ec=GREEN, fontsize=8)
-        _arrow(ax, 0.38, 0.120, 0.38, 0.090)
-
-        # ── Param count badge ─────────────────────────────────────────────────
-        total = "44 337 024" if is_attn else "43 812 480"
-        ax.text(0.5, 0.005, f"Total parameters: {total}",
-                ha="center", fontsize=9, fontweight="bold",
-                color=RED if is_attn else BLUE)
-
-    fig.suptitle("Seq2Seq LSTM Architecture — Baseline vs Attention",
-                 fontsize=13, fontweight="bold", y=1.01)
-    fig.tight_layout(pad=1.5)
-    _save(fig, "fig_a1_architecture_overview")
+    _save_gv(g, "fig_a1_architecture_overview")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# fig_a2 — Baseline decoder: single timestep (fixed context)
+# fig_a2 — Baseline decoder: single timestep
 # ─────────────────────────────────────────────────────────────────────────────
 def plot_baseline_decoder():
-    fig, ax = plt.subplots(figsize=(9, 5.5))
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.axis("off")
-    ax.set_title("Baseline Decoder — Single Timestep  (fixed context)",
-                 fontsize=11, fontweight="bold", pad=8)
+    g = graphviz.Digraph("baseline_decoder",
+                          graph_attr={**_GRAPH_ATTRS,
+                                      "rankdir": "TB",
+                                      "label": "Baseline Decoder — Single Timestep (fixed context)",
+                                      "labelloc": "t", "fontsize": "13",
+                                      "fontname": "Helvetica-Bold",
+                                      "ranksep": "0.55", "nodesep": "0.5"})
 
-    W, Hs, Hm = 0.26, 0.07, 0.09
+    _node(g, "prev",   "y_{t-1}  (previous token)",
+          fillcolor=C_IO, shape="parallelogram", width="2.6")
+    _node(g, "emb",    "Embedding(300) + Dropout(0.30)\n→ [B, 300]",
+          fillcolor=C_EMBED, width="2.8")
+    _node(g, "ctx",    "ctx_fixed  =  encoder_outputs[:, −1, :]\n[B, 1024]  — same at every decoder step",
+          fillcolor=C_DEC, shape="note", width="3.8", height="0.55", fontsize="9")
+    _node(g, "cat1",   "cat([embed ; ctx_fixed])\n→ [B, 1 324]",
+          fillcolor=C_OP, width="2.8")
+    _node(g, "lstm",   "2-layer LSTM\nhidden=1024  |  drop=0.50\n→ s_t  [B, 1024]",
+          fillcolor=C_DEC, width="2.8", height="0.62", fontsize="9")
+    _node(g, "cat2",   "cat([s_t ; ctx_fixed])\n→ [B, 2 048]",
+          fillcolor=C_OP, width="2.8")
+    _node(g, "proj",   "Linear(2048→512) + tanh + Dropout(0.40)\n→ [B, 512]",
+          fillcolor=C_PROJ, width="3.4")
+    _node(g, "out",    "Linear(512 → 16 000)  →  logits [B, 16 000]",
+          fillcolor=C_PROJ, width="3.4")
 
-    # Previous token
-    _box(ax, 0.18, 0.88, W, Hs, "y_{t-1}  (previous token)",
-         fc=LGREY, ec=GREY, fontsize=8.5)
+    _node(g, "warn",
+          "⚠  ctx_fixed never changes — decoder cannot\n"
+          "focus on different source positions each step",
+          fillcolor="#FFF3E0", shape="note", width="3.8",
+          fontsize="9", style="filled")
 
-    # Embedding
-    _box(ax, 0.18, 0.74, W, Hs, "Embedding(300) + Dropout(0.30)",
-         fc=LPURPLE, ec=PURPLE, fontsize=8.5)
-    _arrow(ax, 0.18, 0.845, 0.18, 0.775)
-    ax.text(0.19, 0.808, "[B, 300]", fontsize=7.5, color=PURPLE, style="italic")
+    _edge(g, "prev",  "emb")
+    _edge(g, "emb",   "cat1",  label="[B,300]", color="#7B1FA2")
+    _edge(g, "ctx",   "cat1",  label="[B,1024]", color="#E65100", style="dashed")
+    _edge(g, "cat1",  "lstm",  label="[B,1324]")
+    _edge(g, "lstm",  "cat2",  label="s_t [B,1024]")
+    _edge(g, "ctx",   "cat2",  label="[B,1024]", color="#E65100", style="dashed")
+    _edge(g, "cat2",  "proj")
+    _edge(g, "proj",  "out")
+    _edge(g, "out",   "warn",  style="invis")
 
-    # Fixed context (from encoder last timestep)
-    _box(ax, 0.72, 0.74, 0.30, Hm,
-         "ctx_fixed",
-         sublabel="encoder_outputs[:, −1, :]  →  [B, 1024]",
-         fc=LORANGE, ec=ORANGE, fontsize=8.5)
-    ax.text(0.72, 0.66, "Fixed — same at every decoder step", ha="center",
-            fontsize=7.5, color=ORANGE, style="italic")
+    # Recurrent state
+    g.node("rec", label="h_{t-1}, c_{t-1}\n(recurrent state)",
+           fillcolor="#E0F2F1", style="filled,rounded", shape="box",
+           fontname="Helvetica", fontsize="9", width="1.9", height="0.5")
+    _edge(g, "rec",  "lstm",  label="prev state", color="#00796B", style="dashed")
+    _edge(g, "lstm", "rec",   label="next state", color="#00796B", style="dashed")
 
-    # Cat operation
-    _box(ax, 0.40, 0.60, 0.22, 0.06, "cat([embed ; ctx])",
-         sublabel="→  [B, 1 324]",
-         fc=LGREY, ec=GREY, fontsize=8)
-    _arrow(ax, 0.18, 0.705, 0.295, 0.60, color=PURPLE)
-    _arrow(ax, 0.57, 0.74, 0.515, 0.63, color=ORANGE)
-
-    # LSTM
-    _box(ax, 0.40, 0.46, 0.28, Hm, "2-layer LSTM",
-         sublabel="hidden=1024  |  drop=0.50\noutputs s_t  [B, 1024]",
-         fc=LORANGE, ec=ORANGE, bold=True, fontsize=8.5)
-    _arrow(ax, 0.40, 0.570, 0.40, 0.508)
-    # Recurrent arrow
-    ax.annotate("", xy=(0.56, 0.505), xytext=(0.56, 0.415),
-                arrowprops=dict(arrowstyle="<|-", color=ORANGE, lw=1.2,
-                                connectionstyle="arc3,rad=-0.5"))
-    ax.text(0.64, 0.46, "h_{t-1}, c_{t-1}", fontsize=7.5, color=ORANGE,
-            ha="left", style="italic")
-
-    # Second cat with ctx_fixed
-    _box(ax, 0.40, 0.325, 0.26, 0.06, "cat([s_t ; ctx_fixed])",
-         sublabel="→  [B, 2 048]",
-         fc=LGREY, ec=GREY, fontsize=8)
-    _arrow(ax, 0.40, 0.415, 0.40, 0.358)
-    ax.annotate("", xy=(0.535, 0.328), xytext=(0.72, 0.695),
-                arrowprops=dict(arrowstyle="-|>", color=ORANGE, lw=1.1,
-                                connectionstyle="arc3,rad=0.35",
-                                shrinkA=4, shrinkB=4))
-
-    # Bottleneck
-    _box(ax, 0.40, 0.205, W, Hs, "Linear(2048→512) + tanh + Dropout(0.40)",
-         fc=LGREEN, ec=GREEN, fontsize=8)
-    _arrow(ax, 0.40, 0.295, 0.40, 0.242)
-    ax.text(0.41, 0.268, "[B, 512]", fontsize=7.5, color=GREEN, style="italic")
-
-    # Output head
-    _box(ax, 0.40, 0.090, W, Hs, "Linear(512 → 16 000)  →  logits",
-         fc=LGREEN, ec=GREEN, fontsize=8.5)
-    _arrow(ax, 0.40, 0.170, 0.40, 0.128)
-    ax.text(0.41, 0.150, "[B, 16 000]", fontsize=7.5, color=GREEN, style="italic")
-
-    # Key limitation annotation
-    ax.text(0.5, 0.005,
-            "⚠  Context is fixed — decoder cannot focus on different source positions at different steps",
-            ha="center", fontsize=8.5, color=ORANGE,
-            bbox=dict(facecolor=LORANGE, edgecolor=ORANGE, alpha=0.8,
-                      boxstyle="round,pad=0.3"))
-
-    fig.tight_layout()
-    _save(fig, "fig_a2_baseline_decoder")
+    _save_gv(g, "fig_a2_baseline_decoder")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# fig_a3 — Attention decoder: single timestep (dynamic Bahdanau context)
+# fig_a3 — Attention decoder: single timestep
 # ─────────────────────────────────────────────────────────────────────────────
 def plot_attention_decoder():
-    fig, ax = plt.subplots(figsize=(11, 6.5))
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.axis("off")
-    ax.set_title("Attention Decoder — Single Timestep  (Bahdanau, dynamic context)",
-                 fontsize=11, fontweight="bold", pad=8)
+    g = graphviz.Digraph("attention_decoder",
+                          graph_attr={**_GRAPH_ATTRS,
+                                      "rankdir": "TB",
+                                      "label": "Attention Decoder — Single Timestep (Bahdanau)",
+                                      "labelloc": "t", "fontsize": "13",
+                                      "fontname": "Helvetica-Bold",
+                                      "ranksep": "0.60", "nodesep": "0.5"})
 
-    W, Hs, Hm = 0.23, 0.065, 0.085
+    # Main decode path
+    _node(g, "prev",   "y_{t-1}  (previous token)",
+          fillcolor=C_IO, shape="parallelogram", width="2.6")
+    _node(g, "cprev",  "c_{t-1}  (prev context vector)\n[B, 1024]  |  zeros at t = 0",
+          fillcolor=C_ATTN, width="2.8", height="0.5", fontsize="9")
+    _node(g, "emb",    "Embedding(300) + Dropout(0.30)\n→ [B, 300]",
+          fillcolor=C_EMBED, width="2.8")
+    _node(g, "cat1",   "cat([embed ; c_{t-1}])\n→ [B, 1 324]",
+          fillcolor=C_OP, width="2.6")
+    _node(g, "lstm",   "2-layer LSTM\nhidden=1024  |  drop=0.50\n→ s_t  [B, 1024]",
+          fillcolor=C_ATTN, width="2.8", height="0.62", fontsize="9")
 
-    # Previous token
-    _box(ax, 0.16, 0.90, W, Hs, "y_{t-1}  (previous token)",
-         fc=LGREY, ec=GREY, fontsize=8.5)
+    # Attention sub-graph
+    with g.subgraph(name="cluster_attn") as sa:
+        sa.attr(label="Bahdanau Attention Mechanism",
+                style="rounded,dashed", color="#C62828",
+                fontname="Helvetica-Bold", fontsize="10", fontcolor="#C62828",
+                bgcolor="#FFF5F5", penwidth="1.8")
 
-    # Embedding
-    _box(ax, 0.16, 0.775, W, Hs, "Embedding(300) + Dropout",
-         fc=LPURPLE, ec=PURPLE, fontsize=8.5)
-    _arrow(ax, 0.16, 0.868, 0.16, 0.808)
-    ax.text(0.175, 0.838, "[B, 300]", fontsize=7.5, color=PURPLE, style="italic")
+        _node(sa, "enc_out", "encoder_outputs\n[B, T_src, 1024]",
+              fillcolor=C_ENC, width="2.8", height="0.55", fontsize="9")
+        _node(sa, "wdec",    "W_dec(s_t)\n→ [B, 256]",
+              fillcolor=C_ATTN, width="2.4")
+        _node(sa, "energy",  "e_{t,i} = v · tanh(W_enc·h_i + W_dec·s_t)\n→ [B, T_src, 1]  (pad masked to −∞)",
+              fillcolor="#F8BBD0", width="3.8", height="0.55", fontsize="9")
+        _node(sa, "softmax", "softmax(e_{t,i})  →  α_t\n[B, T_src, 1]",
+              fillcolor="#F8BBD0", width="3.0")
+        _node(sa, "ctx",     "c_t = Σ α_{t,i} · h_i\n→ [B, 1024]",
+              fillcolor=C_ATTN, shape="diamond", width="3.0", height="0.65",
+              fontsize="10", style="filled")
 
-    # c_{t-1} previous context
-    _box(ax, 0.47, 0.90, W, Hs, "c_{t-1}  (prev context vector)",
-         sublabel="[B, 1024]  |  zeros at t=0",
-         fc=LRED, ec=RED, fontsize=8)
+        _edge(sa, "wdec",    "energy",  label="query [B,256]",  color="#C62828")
+        _edge(sa, "enc_out", "energy",  label="keys [B,T,256]", color="#C62828")
+        _edge(sa, "energy",  "softmax")
+        _edge(sa, "softmax", "ctx",     label="α_t weights", color="#C62828")
+        _edge(sa, "enc_out", "ctx",     color="#C62828", style="dashed")
 
-    # Cat embed + c_{t-1}
-    _box(ax, 0.30, 0.660, 0.22, 0.06, "cat([embed ; c_{t-1}])",
-         sublabel="→  [B, 1 324]",
-         fc=LGREY, ec=GREY, fontsize=8)
-    _arrow(ax, 0.16, 0.743, 0.245, 0.660, color=PURPLE)
-    _arrow(ax, 0.47, 0.868, 0.365, 0.690, color=RED)
+    # Continue decode path
+    _node(g, "cat2",   "cat([s_t ; c_t])\n→ [B, 2 048]",
+          fillcolor=C_OP, width="2.6")
+    _node(g, "proj",   "Linear(2048→512) + tanh + Dropout(0.40)\n→ [B, 512]",
+          fillcolor=C_PROJ, width="3.4")
+    _node(g, "out",    "Linear(512 → 16 000)  →  logits [B, 16 000]",
+          fillcolor=C_PROJ, width="3.4")
 
-    # LSTM
-    _box(ax, 0.30, 0.530, 0.26, Hm, "2-layer LSTM",
-         sublabel="hidden=1024  |  drop=0.50\noutputs s_t  [B, 1024]",
-         fc=LRED, ec=RED, bold=True, fontsize=8.5)
-    _arrow(ax, 0.30, 0.630, 0.30, 0.573)
-    ax.annotate("", xy=(0.445, 0.572), xytext=(0.445, 0.488),
-                arrowprops=dict(arrowstyle="<|-", color=RED, lw=1.2,
-                                connectionstyle="arc3,rad=-0.5"))
-    ax.text(0.51, 0.530, "h_{t-1}, c_{t-1}", fontsize=7.5, color=RED,
-            ha="left", style="italic")
+    _node(g, "note",
+          "✓  c_t recomputed every step — decoder attends\n"
+          "to different source positions as it generates",
+          fillcolor="#E8F5E9", shape="note", width="3.8",
+          fontsize="9", style="filled")
 
-    # ── Attention block ───────────────────────────────────────────────────────
-    # Encoder outputs
-    _box(ax, 0.82, 0.780, 0.26, Hm,
-         "encoder_outputs",
-         sublabel="[B, T_src, 1024]\nprecomputed keys W_enc·h_i → [B, T, 256]",
-         fc=LBLUE, ec=BLUE, fontsize=8)
+    # Recurrent state
+    g.node("rec", label="h_{t-1}, c_{t-1}\n(LSTM state)",
+           fillcolor="#E0F2F1", style="filled,rounded", shape="box",
+           fontname="Helvetica", fontsize="9", width="1.8", height="0.5")
 
-    # W_dec(s_t) path
-    _box(ax, 0.65, 0.620, 0.20, Hs, "W_dec(s_t)",
-         sublabel="→  [B, 256]",
-         fc=LRED, ec=RED, fontsize=8)
-    _arrow(ax, 0.42, 0.530, 0.555, 0.620, color=RED)
-    ax.text(0.48, 0.59, "s_t", fontsize=7.5, color=RED, style="italic")
+    # Edges
+    _edge(g, "prev",  "emb")
+    _edge(g, "cprev", "cat1",   label="c_{t-1} [B,1024]", color="#C62828", style="dashed")
+    _edge(g, "emb",   "cat1",   label="[B,300]", color="#7B1FA2")
+    _edge(g, "cat1",  "lstm")
+    _edge(g, "rec",   "lstm",   label="prev state", color="#00796B", style="dashed")
+    _edge(g, "lstm",  "rec",    label="next state", color="#00796B", style="dashed")
+    _edge(g, "lstm",  "wdec",   label="s_t [B,1024]", color="#C62828")
+    _edge(g, "lstm",  "cat2",   label="s_t [B,1024]")
+    _edge(g, "ctx",   "cat2",   label="c_t [B,1024]", color="#C62828")
+    _edge(g, "ctx",   "cprev",  label="→ c_{t-1}\n(next step)",
+          color="#C62828", style="dashed")
+    _edge(g, "cat2",  "proj")
+    _edge(g, "proj",  "out")
+    _edge(g, "out",   "note",   style="invis")
 
-    # Energy computation
-    _box(ax, 0.75, 0.490, 0.26, Hm,
-         "Energy  e_{t,i}",
-         sublabel="v · tanh(W_enc·h_i + W_dec·s_t)\n→  [B, T_src, 1]",
-         fc=LPURPLE, ec=PURPLE, bold=True, fontsize=8)
-    _arrow(ax, 0.65, 0.588, 0.715, 0.530, color=RED)
-    _arrow(ax, 0.82, 0.737, 0.82, 0.535, color=BLUE)
-    ax.text(0.835, 0.635, "keys\n[B, T, 256]", fontsize=7.5, color=BLUE, style="italic")
-
-    # Softmax → α
-    _box(ax, 0.75, 0.375, 0.24, Hs, "softmax (pad masked)",
-         sublabel="α_t  →  [B, T_src, 1]",
-         fc=LPURPLE, ec=PURPLE, fontsize=8)
-    _arrow(ax, 0.75, 0.448, 0.75, 0.411)
-
-    # Context vector
-    _box(ax, 0.75, 0.265, 0.26, Hm,
-         "Context  c_t",
-         sublabel="Σ α_{t,i} · h_i\n→  [B, 1024]",
-         fc=LRED, ec=RED, bold=True, fontsize=8.5)
-    _arrow(ax, 0.75, 0.343, 0.75, 0.309)
-    # encoder_outputs → context
-    ax.annotate("", xy=(0.88, 0.266), xytext=(0.82, 0.737),
-                arrowprops=dict(arrowstyle="-|>", color=BLUE, lw=1.1,
-                                connectionstyle="arc3,rad=0.3",
-                                shrinkA=4, shrinkB=4))
-    ax.text(0.90, 0.50, "encoder_outputs\n[B, T, 1024]",
-            fontsize=7, color=BLUE, ha="left", style="italic")
-
-    # c_t → cat + c_{t-1} feedback
-    _arrow(ax, 0.75, 0.265, 0.47, 0.895, color=RED)
-    ax.text(0.54, 0.73, "c_t becomes\nc_{t-1} next step",
-            fontsize=7, color=RED, ha="center", style="italic",
-            bbox=dict(facecolor="white", edgecolor=RED, alpha=0.75,
-                      boxstyle="round,pad=0.2"))
-
-    # cat(s_t, c_t)
-    _box(ax, 0.30, 0.265, 0.24, Hs, "cat([s_t ; c_t])",
-         sublabel="→  [B, 2 048]",
-         fc=LGREY, ec=GREY, fontsize=8)
-    _arrow(ax, 0.30, 0.488, 0.30, 0.300)
-    _arrow(ax, 0.62, 0.265, 0.425, 0.265, color=RED)
-
-    # Bottleneck
-    _box(ax, 0.30, 0.160, W, Hs, "Linear(2048→512) + tanh + Dropout(0.40)",
-         fc=LGREEN, ec=GREEN, fontsize=8)
-    _arrow(ax, 0.30, 0.233, 0.30, 0.193)
-    ax.text(0.315, 0.212, "[B, 512]", fontsize=7.5, color=GREEN, style="italic")
-
-    # Output head
-    _box(ax, 0.30, 0.060, W, Hs, "Linear(512 → 16 000)  →  logits",
-         fc=LGREEN, ec=GREEN, fontsize=8.5)
-    _arrow(ax, 0.30, 0.128, 0.30, 0.095)
-
-    # Key advantage
-    ax.text(0.5, 0.005,
-            "✓  c_t is recomputed every step — decoder attends to different source positions as it generates each token",
-            ha="center", fontsize=8.5, color=RED,
-            bbox=dict(facecolor=LRED, edgecolor=RED, alpha=0.8,
-                      boxstyle="round,pad=0.3"))
-
-    fig.tight_layout()
-    _save(fig, "fig_a3_attention_decoder")
+    _save_gv(g, "fig_a3_attention_decoder")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# fig_a4 — Parameter breakdown: stacked bar baseline vs attention
+# fig_a4 — Parameter breakdown (matplotlib — chart, not flowchart)
 # ─────────────────────────────────────────────────────────────────────────────
 def plot_parameter_breakdown():
+    import matplotlib.ticker as mticker
+
     components = ["Embedding\n(shared)", "Encoder\nBiLSTM", "Bridge",
-                  "Decoder\nLSTM", "Bottleneck\n+ Output head", "Attention\nweights"]
+                  "Decoder\nLSTM", "Bottleneck +\nOutput head", "Attention\nweights"]
+    baseline   = [4_800_000, 9_633_792, 2_099_200, 18_022_400, 9_257_088, 0]
+    attention  = [4_800_000, 9_633_792, 2_099_200, 18_022_400, 9_257_088, 524_544]
+    colors     = ["#CE93D8", "#90CAF9", "#80CBC4", "#FFCC80", "#A5D6A7", "#EF9A9A"]
 
-    baseline = [4_800_000, 9_633_792, 2_099_200, 18_022_400, 9_257_088, 0]
-    attention = [4_800_000, 9_633_792, 2_099_200, 18_022_400, 9_257_088, 524_544]
+    fig, (ax, ax2) = plt.subplots(1, 2, figsize=(12, 5.2),
+                                   gridspec_kw={"width_ratios": [1.8, 1]})
 
-    colors = [PURPLE, BLUE, TEAL, ORANGE, GREEN, RED]
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5.2),
-                             gridspec_kw={"width_ratios": [1.8, 1]})
-
-    # ── Left: stacked bars ────────────────────────────────────────────────────
-    ax = axes[0]
     models   = ["Baseline\n43,812,480", "Attention\n44,337,024"]
     datasets = [baseline, attention]
+    bottoms  = [0, 0]
 
-    bottoms = [0, 0]
-    bars_collection = []
-    for i, (comp, bl, at, col) in enumerate(zip(components, baseline, attention, colors)):
+    for comp, bl, at, col in zip(components, baseline, attention, colors):
         vals = [bl, at]
-        b = ax.bar(models, vals, bottom=bottoms, color=col, alpha=0.85,
-                   label=comp, edgecolor="white", linewidth=1.2)
-        bars_collection.append((b, vals, bottoms[:]))
+        ax.bar(models, vals, bottom=bottoms, color=col, alpha=0.9,
+               label=comp, edgecolor="white", linewidth=1.2)
         for j in range(2):
             mid = bottoms[j] + vals[j] / 2
             if vals[j] > 500_000:
                 ax.text(j, mid, f"{vals[j]/1e6:.2f}M",
-                        ha="center", va="center", fontsize=8,
+                        ha="center", va="center", fontsize=8.5,
                         color="white", fontweight="bold")
         bottoms = [b + v for b, v in zip(bottoms, vals)]
 
     ax.set_ylabel("Parameters")
-    ax.set_title("Parameter Breakdown by Component", pad=8)
-    ax.yaxis.set_major_formatter(
-        plt.FuncFormatter(lambda x, _: f"{x/1e6:.0f}M"))
+    ax.set_title("Parameter Breakdown by Component", pad=8, fontweight="bold")
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x/1e6:.0f}M"))
     ax.set_ylim(0, 50_000_000)
-    ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
+    ax.legend(loc="upper right", fontsize=8.5, framealpha=0.9)
     ax.grid(axis="y", ls=":", alpha=0.4)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
-    # ── Right: attention overhead donut ────────────────────────────────────────
-    ax2 = axes[1]
+    # Donut
     sizes  = [43_812_480, 524_544]
-    cols   = [BLUE, RED]
-    labels = [f"Shared with baseline\n43,812,480 params", f"Attention only\n524,544 params"]
-    wedges, _ = ax2.pie(sizes, colors=cols, startangle=90,
+    cols2  = ["#90CAF9", "#EF9A9A"]
+    wedges, _ = ax2.pie(sizes, colors=cols2, startangle=90,
                          wedgeprops={"width": 0.55, "edgecolor": "white", "linewidth": 2},
                          explode=[0, 0.08])
-    ax2.legend(wedges, labels, loc="lower center", bbox_to_anchor=(0.5, -0.12),
+    ax2.legend(wedges,
+               [f"Shared with baseline\n43,812,480",
+                f"Attention only\n524,544  (+1.2%)"],
+               loc="lower center", bbox_to_anchor=(0.5, -0.14),
                fontsize=8.5, framealpha=0.9)
     ax2.text(0, 0, "+1.2%\noverhead", ha="center", va="center",
-             fontsize=10, fontweight="bold", color=RED)
-    ax2.set_title("Attention\nParameter Overhead", pad=8)
+             fontsize=11, fontweight="bold", color="#C62828")
+    ax2.set_title("Attention\nParameter Overhead", pad=8, fontweight="bold")
 
     fig.suptitle("Model Parameter Breakdown — Baseline vs Attention",
-                 fontsize=12, fontweight="bold")
+                 fontsize=12, fontweight="bold", y=1.02)
     fig.tight_layout(pad=2.0)
-    _save(fig, "fig_a4_parameter_breakdown")
+    _save_mpl(fig, "fig_a4_parameter_breakdown")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# fig_a5 — Bahdanau vs Luong comparison
+# fig_a5 — Bahdanau vs Luong comparison (matplotlib table — chart, not flowchart)
 # ─────────────────────────────────────────────────────────────────────────────
 def plot_bahdanau_vs_luong():
-    fig, ax = plt.subplots(figsize=(12, 5.5))
+    fig, ax = plt.subplots(figsize=(13, 5.8))
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")
     ax.set_title("Bahdanau vs Luong Attention — Design Comparison",
-                 fontsize=12, fontweight="bold", pad=10)
+                 fontsize=13, fontweight="bold", pad=12)
+
+    cols_x = [0.07, 0.38, 0.72]
 
     # Column headers
-    cols_x  = [0.07, 0.38, 0.72]
-    headers = ["Property", "Bahdanau (additive)  ✓ chosen", "Luong (multiplicative)"]
-    hcols   = [DARK, GREEN, GREY]
-    for x, h, c in zip(cols_x, headers, hcols):
-        ax.text(x, 0.935, h, fontsize=10, fontweight="bold", color=c, va="top")
-
-    # Divider line under header
-    ax.axhline(0.900, xmin=0.0, xmax=1.0, color=GREY, lw=1.2)
+    for x, h, c in zip(cols_x,
+                        ["Property", "Bahdanau (additive)  ✓ chosen", "Luong (multiplicative)"],
+                        [DARK, "#2E7D32", "#546E7A"]):
+        ax.text(x, 0.935, h, fontsize=10.5, fontweight="bold", color=c, va="top")
+    ax.axhline(0.900, color="#B0BEC5", lw=1.4)
 
     rows = [
         ("Query timing",
-         "s_{t−1}  (BEFORE LSTM step)\n→ context informs current generation",
-         "s_t  (AFTER LSTM step)\n→ context only rescores output"),
+         "s_{t−1}  (BEFORE LSTM step)\nContext informs what to generate next",
+         "s_t  (AFTER LSTM step)\nContext only rescores existing output"),
         ("Score function",
-         "v · tanh(W_enc·h_i + W_dec·s)\nAdditive MLP, non-linear",
-         "s_t · h_i  (dot)\nor s_t · W · h_i  (general)"),
+         "v · tanh(W_enc·h_i + W_dec·s)\nNon-linear additive MLP",
+         "s_t · h_i  (dot product)\nor  s_t · W · h_i  (general)"),
         ("Projection",
-         "Both projected to 256-d\n→ controls energy scale, avoids saturation",
-         "No projection (dot product)\n→ large inner products at 1024-d"),
+         "Both projected to 256-d\nControls energy scale, prevents saturation",
+         "No projection\nRaw 1024-d dot product"),
         ("Softmax stability",
-         "✓ Stable — 256-d projection keeps energies bounded",
-         "⚠ Risk of saturation at 1024-d without √d scaling"),
+         "✓  Stable — 256-d energies stay bounded",
+         "⚠  Risk of saturation at 1024-d\n(Transformers add √d scaling to fix this)"),
         ("Expressiveness",
-         "✓ Non-linear alignment function\n→ better for noisy IRC multi-turn context",
-         "Linear dot product\n→ sufficient for clean parallel text (NMT)"),
+         "✓  Non-linear — learns complex alignment\nBetter for noisy multi-turn IRC context",
+         "Linear compatibility function\nSufficient for clean parallel text (NMT)"),
     ]
-
-    row_colors_bahdanau = [LGREEN, LGREEN, LGREEN, LGREEN, LGREEN]
-    row_colors_luong    = [LGREY,  LGREY,  LGREY,  "#FFF9C4", LGREY]
 
     y_start, row_h = 0.865, 0.155
 
@@ -552,58 +465,51 @@ def plot_bahdanau_vs_luong():
         y_top = y_start - i * row_h
         y_mid = y_top - row_h / 2
 
-        # Alternating row background
         if i % 2 == 0:
-            ax.axhspan(y_top - row_h, y_top, color="#F8F8F8", zorder=0)
+            ax.axhspan(y_top - row_h, y_top, color="#FAFAFA", zorder=0)
 
-        # Property column
         ax.text(cols_x[0], y_mid + 0.01, prop,
-                fontsize=8.5, color=DARK, fontweight="bold", va="center")
+                fontsize=9, color=DARK, fontweight="bold", va="center")
 
-        # Bahdanau column
-        bg_b = FancyBboxPatch((cols_x[1] - 0.01, y_top - row_h + 0.008),
-                               0.32, row_h - 0.016,
+        bg_b = FancyBboxPatch((cols_x[1] - 0.01, y_top - row_h + 0.01),
+                               0.31, row_h - 0.02,
                                boxstyle="round,pad=0.005",
-                               facecolor=LGREEN, edgecolor=GREEN,
-                               linewidth=0.7, alpha=0.5, zorder=1)
+                               facecolor="#E8F5E9", edgecolor="#A5D6A7",
+                               linewidth=0.8, alpha=0.6, zorder=1)
         ax.add_patch(bg_b)
-        ax.text(cols_x[1], y_mid, bah, fontsize=8, color=DARK, va="center",
-                linespacing=1.4, zorder=2)
+        ax.text(cols_x[1], y_mid, bah, fontsize=8.5, color=DARK, va="center",
+                linespacing=1.5, zorder=2)
 
-        # Luong column
-        luong_col = "#FFF176" if "⚠" in luong else LGREY
-        bg_l = FancyBboxPatch((cols_x[2] - 0.01, y_top - row_h + 0.008),
-                               0.32, row_h - 0.016,
+        luong_fc = "#FFF9C4" if "⚠" in luong else "#F5F5F5"
+        luong_ec = "#F9A825" if "⚠" in luong else "#B0BEC5"
+        bg_l = FancyBboxPatch((cols_x[2] - 0.01, y_top - row_h + 0.01),
+                               0.31, row_h - 0.02,
                                boxstyle="round,pad=0.005",
-                               facecolor=luong_col, edgecolor=GREY,
-                               linewidth=0.7, alpha=0.6, zorder=1)
+                               facecolor=luong_fc, edgecolor=luong_ec,
+                               linewidth=0.8, alpha=0.7, zorder=1)
         ax.add_patch(bg_l)
-        ax.text(cols_x[2], y_mid, luong, fontsize=8, color=DARK, va="center",
-                linespacing=1.4, zorder=2)
+        ax.text(cols_x[2], y_mid, luong, fontsize=8.5, color=DARK, va="center",
+                linespacing=1.5, zorder=2)
 
-    # Bottom divider
-    ax.axhline(y_start - len(rows) * row_h, color=GREY, lw=1.2)
-
-    # Footer note
-    ax.text(0.5, 0.015,
-            "Chosen: Bahdanau — stable energy scale, non-linear alignment, "
-            "context fed into the LSTM step rather than rescoring after it",
-            ha="center", fontsize=8.5, color=GREEN, style="italic",
-            bbox=dict(facecolor=LGREEN, edgecolor=GREEN,
-                      boxstyle="round,pad=0.3", alpha=0.8))
+    ax.axhline(y_start - len(rows) * row_h, color="#B0BEC5", lw=1.4)
+    ax.text(0.5, 0.012,
+            "Selected: Bahdanau — stable energy scale, non-linear alignment, "
+            "context fed INTO the LSTM step rather than rescoring after it",
+            ha="center", fontsize=9, color="#2E7D32", style="italic",
+            bbox=dict(facecolor="#E8F5E9", edgecolor="#A5D6A7",
+                      boxstyle="round,pad=0.35", alpha=0.9))
 
     fig.tight_layout()
-    _save(fig, "fig_a5_bahdanau_vs_luong")
+    _save_mpl(fig, "fig_a5_bahdanau_vs_luong")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Main
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("Generating Architecture report figures...")
+    print("Generating Architecture report figures (Graphviz + matplotlib)...")
     plot_overview()
     plot_baseline_decoder()
     plot_attention_decoder()
     plot_parameter_breakdown()
     plot_bahdanau_vs_luong()
     print(f"\nAll figures saved to {FIG_DIR}")
+
