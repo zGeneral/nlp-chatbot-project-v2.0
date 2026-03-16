@@ -286,14 +286,19 @@ def compute_bleu_corpus(
         hypotheses_str,
         [references_str],
         tokenize="13a",
+        force=True,
     )
-    # BLEU-1/2/3 are independent corpus_bleu calls, each with their own brevity
-    # penalty (BP). This is consistent with how the osamadev reference benchmark
-    # was computed, but note that BLEU-N here is NOT the n-gram precision component
-    # of BLEU-4 — it is a separate metric. Documented in PLAN.md §Phase 3 (AC2-I2).
-    bleu1 = sacrebleu.corpus_bleu(hypotheses_str, [references_str], tokenize="13a", max_ngram_order=1).score / 100
-    bleu2 = sacrebleu.corpus_bleu(hypotheses_str, [references_str], tokenize="13a", max_ngram_order=2).score / 100
-    bleu3 = sacrebleu.corpus_bleu(hypotheses_str, [references_str], tokenize="13a", max_ngram_order=3).score / 100
+    # BLEU-1/2/3 are independent corpus_bleu calls with use_effective_order=True
+    # so each N-gram order has its own brevity penalty (consistent with the
+    # osamadev benchmark methodology — AC2-I2). sacrebleu 2.x dropped
+    # max_ngram_order; use BLEU(max_ngram_order=N) directly instead.
+    from sacrebleu.metrics import BLEU as _BLEU
+    bleu1 = _BLEU(max_ngram_order=1, tokenize="13a", force=True).corpus_score(
+        hypotheses_str, [references_str]).score / 100
+    bleu2 = _BLEU(max_ngram_order=2, tokenize="13a", force=True).corpus_score(
+        hypotheses_str, [references_str]).score / 100
+    bleu3 = _BLEU(max_ngram_order=3, tokenize="13a", force=True).corpus_score(
+        hypotheses_str, [references_str]).score / 100
     bleu4 = bleu.score / 100
 
     # ── ROUGE-L ──────────────────────────────────────────────────────────────
@@ -620,6 +625,218 @@ def run_evaluation(
         print(f"  {metric:<18} {str(b_val):>12} {str(a_val):>12} {str(r_val):>12}")
     print("=" * 70)
     print("* Reference: osamadev/seq2seq-chatbot (8k SP, greedy) — directional only (F3)")
+
+    # ── Report figures ────────────────────────────────────────────────────────
+    if len(all_bleu) >= 1:
+        print("\n  Generating report figures…")
+        plot_evaluation_figures(all_bleu, checkpoint_dir)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Report figures — same palette/style as report/plot_training.py
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _eval_apply_style() -> None:
+    """Apply consistent publication style (mirrors plot_training.py)."""
+    try:
+        import scienceplots  # noqa: F401
+        plt.style.use(["science", "grid"])
+        try:
+            import shutil
+            if not shutil.which("latex"):
+                plt.rcParams["text.usetex"] = False
+        except Exception:
+            plt.rcParams["text.usetex"] = False
+    except ImportError:
+        try:
+            sns.set_theme(style="whitegrid", context="paper", font_scale=1.1)
+        except Exception:
+            plt.style.use("seaborn-v0_8-whitegrid")
+
+    plt.rcParams.update({
+        "figure.dpi":        150,
+        "savefig.dpi":       300,
+        "font.size":         11,
+        "axes.titlesize":    12,
+        "axes.labelsize":    11,
+        "legend.fontsize":   9,
+        "xtick.labelsize":   9,
+        "ytick.labelsize":   9,
+        "lines.linewidth":   1.8,
+        "lines.markersize":  5,
+        "figure.constrained_layout.use": True,
+    })
+
+
+# Colour palette — matches plot_training.py exactly
+_EVAL_PALETTE = {
+    "baseline":  "#2C7BB6",
+    "attention": "#D7191C",
+    "ref":       "#4DAC26",   # green for reference bar
+    "grid":      "#CCCCCC",
+}
+
+
+def _eval_save(fig: plt.Figure, figures_dir: Path, name: str) -> None:
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    for ext in ("png", "pdf"):
+        path = figures_dir / f"{name}.{ext}"
+        fig.savefig(str(path), bbox_inches="tight")
+    print(f"  Saved → {name}.png / .pdf")
+
+
+def plot_evaluation_figures(all_bleu: Dict[str, Dict], checkpoint_dir: Path) -> None:
+    """
+    Generate publication-ready evaluation figures from bleu_results.json data.
+
+    Outputs (written to report/figures/):
+      fig6_metric_comparison.png/.pdf   — grouped bar chart: all metrics side-by-side
+      fig7_bleu_breakdown.png/.pdf      — BLEU-1/2/3/4 stacked comparison
+      fig8_diversity_metrics.png/.pdf   — Distinct-1/2 per model
+      fig9_attention_heatmap_styled.png — styled copy of attention heatmap (if exists)
+    """
+    _eval_apply_style()
+
+    figures_dir = Path("report") / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    has_baseline  = "baseline"  in all_bleu
+    has_attention = "attention" in all_bleu
+
+    b = all_bleu.get("baseline",  {})
+    a = all_bleu.get("attention", {})
+    ref = {"bleu1": 0.4400, "bleu4": 0.1386, "rougeL_f1": 0.0922}
+
+    # ── Figure 6: Full metric comparison bar chart ────────────────────────────
+    metrics_display = [
+        ("bleu1",        "BLEU-1"),
+        ("bleu2",        "BLEU-2"),
+        ("bleu3",        "BLEU-3"),
+        ("bleu4",        "BLEU-4"),
+        ("rougeL_f1",    "ROUGE-L"),
+        ("bertscore_f1", "BERTScore F1"),
+        ("distinct1",    "Distinct-1"),
+        ("distinct2",    "Distinct-2"),
+    ]
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    x = range(len(metrics_display))
+    width = 0.28
+
+    models_present = []
+    if has_baseline:  models_present.append(("baseline",  b, _EVAL_PALETTE["baseline"]))
+    if has_attention: models_present.append(("attention", a, _EVAL_PALETTE["attention"]))
+
+    n_models = len(models_present)
+    offsets = [-width/2 * (n_models - 1) + i * width for i in range(n_models)]
+
+    for (label, data, colour), offset in zip(models_present, offsets):
+        vals = [data.get(k, 0) for k, _ in metrics_display]
+        bars = ax.bar([xi + offset for xi in x], vals, width=width,
+                      color=colour, alpha=0.85, label=label.capitalize())
+        for bar, val in zip(bars, vals):
+            if val > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + 0.003,
+                        f"{val:.3f}", ha="center", va="bottom",
+                        fontsize=7, rotation=45)
+
+    # Reference markers (only for metrics where reference exists)
+    ref_positions = {k: i for i, (k, _) in enumerate(metrics_display) if k in ref}
+    for k, xi in ref_positions.items():
+        ax.hlines(ref[k], xi - 0.45, xi + 0.45,
+                  colors=_EVAL_PALETTE["ref"], lw=1.5, ls="--", zorder=5)
+
+    # Legend entry for reference line
+    from matplotlib.lines import Line2D
+    legend_handles = [
+        plt.Rectangle((0, 0), 1, 1, color=c, alpha=0.85)
+        for _, _, c in models_present
+    ] + [Line2D([0], [0], color=_EVAL_PALETTE["ref"], lw=1.5, ls="--")]
+    legend_labels = [lbl.capitalize() for lbl, _, _ in models_present] + ["Reference (osamadev)*"]
+    ax.legend(legend_handles, legend_labels, loc="upper right", framealpha=0.9)
+
+    ax.set_xticks(list(x))
+    ax.set_xticklabels([lbl for _, lbl in metrics_display], rotation=15, ha="right")
+    ax.set_ylabel("Score")
+    ax.set_title("Evaluation Metrics — Baseline vs Attention")
+    ax.set_ylim(0, ax.get_ylim()[1] * 1.18)
+    ax.yaxis.grid(True, alpha=0.5)
+    ax.set_axisbelow(True)
+
+    fig.text(0.01, -0.04,
+             "* Reference: osamadev/seq2seq-chatbot (8k SP vocab, greedy decode) — directional only",
+             fontsize=7, color="#666666")
+    _eval_save(fig, figures_dir, "fig6_metric_comparison")
+    plt.close(fig)
+
+    # ── Figure 7: BLEU-1/2/3/4 breakdown ─────────────────────────────────────
+    bleu_metrics = [("bleu1", "BLEU-1"), ("bleu2", "BLEU-2"),
+                    ("bleu3", "BLEU-3"), ("bleu4", "BLEU-4")]
+    ref_bleu = {"bleu1": 0.4400, "bleu4": 0.1386}
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    x2 = range(len(bleu_metrics))
+
+    for (label, data, colour), offset in zip(models_present, offsets[:n_models]):
+        vals = [data.get(k, 0) for k, _ in bleu_metrics]
+        bars = ax.bar([xi + offset for xi in x2], vals, width=width,
+                      color=colour, alpha=0.85, label=label.capitalize())
+        for bar, val in zip(bars, vals):
+            if val > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + 0.002,
+                        f"{val:.3f}", ha="center", va="bottom", fontsize=8)
+
+    for k, xi in [(k, i) for i, (k, _) in enumerate(bleu_metrics) if k in ref_bleu]:
+        ax.hlines(ref_bleu[k], xi - 0.45, xi + 0.45,
+                  colors=_EVAL_PALETTE["ref"], lw=1.5, ls="--", zorder=5)
+
+    ax.set_xticks(list(x2))
+    ax.set_xticklabels([lbl for _, lbl in bleu_metrics])
+    ax.set_ylabel("BLEU Score")
+    ax.set_title("BLEU-N Scores — Baseline vs Attention")
+    ax.legend(loc="upper right", framealpha=0.9)
+    ax.yaxis.grid(True, alpha=0.5)
+    ax.set_axisbelow(True)
+    _eval_save(fig, figures_dir, "fig7_bleu_breakdown")
+    plt.close(fig)
+
+    # ── Figure 8: Diversity metrics ───────────────────────────────────────────
+    div_metrics = [("distinct1", "Distinct-1"), ("distinct2", "Distinct-2")]
+
+    fig, ax = plt.subplots(figsize=(5, 4))
+    x3 = range(len(div_metrics))
+
+    for (label, data, colour), offset in zip(models_present, offsets[:n_models]):
+        vals = [data.get(k, 0) for k, _ in div_metrics]
+        bars = ax.bar([xi + offset for xi in x3], vals, width=width,
+                      color=colour, alpha=0.85, label=label.capitalize())
+        for bar, val in zip(bars, vals):
+            if val > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + 0.002,
+                        f"{val:.3f}", ha="center", va="bottom", fontsize=9)
+
+    ax.set_xticks(list(x3))
+    ax.set_xticklabels([lbl for _, lbl in div_metrics])
+    ax.set_ylabel("Diversity Score")
+    ax.set_title("Response Diversity (Distinct-N)")
+    ax.legend(loc="upper left", framealpha=0.9)
+    ax.yaxis.grid(True, alpha=0.5)
+    ax.set_axisbelow(True)
+    _eval_save(fig, figures_dir, "fig8_diversity_metrics")
+    plt.close(fig)
+
+    # ── Figure 9: Styled attention heatmap copy ───────────────────────────────
+    src_heatmap = checkpoint_dir / "attention_heatmap.png"
+    if src_heatmap.exists():
+        import shutil as _shutil
+        dst = figures_dir / "fig9_attention_heatmap.png"
+        _shutil.copy2(str(src_heatmap), str(dst))
+        print(f"  Copied attention heatmap → fig9_attention_heatmap.png")
+
+    print(f"  All evaluation figures saved to report/figures/")
 
 
 if __name__ == "__main__":
