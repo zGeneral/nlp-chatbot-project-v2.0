@@ -11,6 +11,7 @@ Call them any time the plan or code changes significantly to get a fresh review.
 | `developer.md` | 👨‍💻 Senior PyTorch Developer | API correctness, silent bugs, underspecified details |
 | `academic_reviewer.md` | 🎓 NLP Research Reviewer | Methodology, evaluation validity, academic standards |
 | `qa_engineer.md` | 🧪 QA / ML Reliability Engineer | Failure modes, edge cases, missing safeguards |
+| `diagram_artist.md` | 🎨 Technical Diagram Artist | Publication-quality figures using Graphviz + matplotlib |
 
 ## How to Call an Agent
 
