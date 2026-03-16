@@ -46,41 +46,19 @@ attention rather than training regime differences.
 
 ## Training Loop Overview
 
-```
-+- EPOCH LOOP (1 -> 20) -----------------------------------------------------+
-|                                                                             |
-|  tf_ratio  <-  get_tf_ratio(epoch)   (see Appendix A)                     |
-|  optimizer.zero_grad()                                                      |
-|                                                                             |
-|  +- BATCH LOOP --------------------------------------------------------+   |
-|  |                                                                      |   |
-|  |  with autocast(cuda, bf16):                                         |   |
-|  |      logits = model(src, src_len, trg, tf_ratio)                   |   |
-|  |      loss   = CrossEntropyLoss(logits, trg[:,1:])  <- pad masked   |   |
-|  |                                                                      |   |
-|  |  if loss is NaN -> zero_grad, skip batch        <- NaN guard       |   |
-|  |                                                                      |   |
-|  |  (loss / accum_steps).backward()               <- scale grad       |   |
-|  |                                                                      |   |
-|  |  if (step % 2 == 0) or last_batch:                                 |   |
-|  |      clip_grad_norm_(model, max_norm=1.0)                          |   |
-|  |      if grad_norm is NaN -> zero_grad, skip step                   |   |
-|  |      optimizer.step()                                               |   |
-|  |      optimizer.zero_grad(set_to_none=True)                         |   |
-|  |      if global_step % 2000 == 0 -> save step checkpoint            |   |
-|  |                                                                      |   |
-|  +----------------------------------------------------------------------+   |
-|                                                                             |
-|  val_loss <- evaluate(model, val_loader, tf=0.0)   <- no TF in val        |
-|  scheduler.step(val_loss)                          <- may halve LR        |
-|                                                                             |
-|  if epoch == 6: reset best_val_loss, no_improve    <- Phase 2 reset       |
-|  if val_loss < best -> save best.pt                                        |
-|  else: no_improve += 1; if >= 4 -> early stop                             |
-|  save last.pt  (always)                            <- resume guard        |
-|                                                                             |
-+-----------------------------------------------------------------------------+
-```
+![Figure TM1 — Training loop structure](figures/fig_tm1_training_loop.png)
+
+*Figure TM1: Training loop structure. The outer Cisco Blue zone is the epoch loop; the inner Medium Blue zone is the batch loop. The red box marks the NaN guard that skips corrupt batches without updating weights. The decoder zone reset at epoch 6 grants Phase 2 its own independent convergence window.*
+
+> **Excalidraw source:** `excalidraw/fig_tm1_training_loop.excalidraw`
+
+![Figure 1 — Training and validation loss curves](figures/fig1_loss_curves.png)
+
+*Figure 1: Training and validation loss curves for baseline (left) and attention (right) models over 20 epochs. Both converge smoothly under the three-phase teacher-forcing curriculum; the attention model achieves lower final validation loss.*
+
+![Figure 2 — Validation perplexity](figures/fig2_perplexity.png)
+
+*Figure 2: Validation perplexity (PPL = exp(val\_loss)) over training epochs. The attention model reaches lower final perplexity, confirming that dynamic context improves token prediction quality.*
 
 ---
 
@@ -109,19 +87,11 @@ own previous prediction (autoregressive / free-running).
 
 ### A.1 Three-Phase Schedule
 
-```
-TF
-1.0 |*-----*
-    |       \  Phase 2: linear decay 0.9->0.5
-0.9 |        *
-    |         \
-0.7 |          *
-    |            \
-0.5 |             *-----------* Phase 3: floor
-    +---------------------------------- epoch
-      1  2  3  4  5  6  7  8  9 10 11 12 13 14 ... 20
-      |<-- Phase 1 -->|<---- Phase 2 ---->|<-- Phase 3 -->|
-```
+![Figure TM2 — Three-phase teacher forcing schedule](figures/fig_tm2_tf_phases.png)
+
+*Figure TM2: Three-phase teacher forcing schedule. Phase 1 (Cisco Blue, epochs 1–5): TF fixed at 1.00 for stable early convergence. Phase 2 (Medium Blue, epochs 6–12): linear decay 0.90 → 0.50 to close exposure bias. Phase 3 (grey, epochs 13–20): floor at 0.50 for mixed supervision.*
+
+> **Excalidraw source:** `excalidraw/fig_tm2_tf_phases.excalidraw`
 
 | Phase | Epochs | TF Ratio | Purpose |
 |---|---|---|---|
@@ -153,6 +123,11 @@ This means within a single batch, some tokens receive ground-truth
 input and others receive the model's own prediction — creating a
 mixed-supervision signal that smooths the transition.
 
+![Figure 3 — LR and teacher-forcing schedule (observed)](figures/fig3_lr_tf_schedule.png)
+
+*Figure 3: Observed learning rate and teacher forcing trajectories during training. Left: ReduceLROnPlateau halving events. Right: the three-phase TF schedule as executed.*
+
+
 ---
 
 ## B. Gradient Accumulation & Mixed Precision
@@ -162,12 +137,11 @@ mixed-supervision signal that smooths the transition.
 Physical batch size is constrained by GPU VRAM. Two accumulation steps
 double the effective batch without exceeding memory:
 
-```
-Batch 0 --> forward -> (loss/2).backward()  <- gradients accumulate
-Batch 1 --> forward -> (loss/2).backward()  <- gradients accumulate
-             clip -> optimizer.step() -> zero_grad
-             effective batch = 256 x 2 = 512 samples
-```
+![Figure TM3 — Gradient accumulation: effective batch construction](figures/fig_tm3_grad_accum.png)
+
+*Figure TM3: Gradient accumulation over 2 steps. Batch 0 (Cisco Blue) and Batch 1 (Medium Blue) each run a forward pass and accumulate gradients (loss divided by 2). After both batches, a single clip + optimizer.step() + zero\_grad updates weights with a gradient equivalent to a 512-sample batch.*
+
+> **Excalidraw source:** `excalidraw/fig_tm3_grad_accum.excalidraw`
 
 Loss is divided by `grad_accum_steps = 2` before `.backward()` so
 accumulated gradients equal the mean over 512 samples. The unscaled
@@ -223,14 +197,15 @@ bias. The reset grants Phase 2 its own independent convergence window.
 
 ### C.3 Early Stopping Timeline
 
-```
-Phase 1 (ep 1-5):  early stopping DISABLED (counter not checked)
-Phase 2+ (ep 6+):  counter active
+![Figure TM4 — Early stopping: phase-gated counter logic](figures/fig_tm4_early_stopping.png)
 
-     best found -> counter = 0
-     no improve  -> counter + 1
-     counter >= 4 -> training halted, best.pt already saved
-```
+*Figure TM4: Early stopping is disabled in Phase 1 (epochs 1–5). From epoch 6 onward, each epoch either resets the counter (val\_loss improved, Cisco Blue) or increments it (no improvement). Once the counter reaches 4, training halts. The counter and best\_val\_loss are reset at epoch 6 to give Phase 2 its own convergence window.*
+
+> **Excalidraw source:** `excalidraw/fig_tm4_early_stopping.excalidraw`
+
+![Figure 4 — Overfitting gap](figures/fig4_overfit_gap.png)
+
+*Figure 4: Train/validation loss gap (overfitting measure) over epochs. The three-phase TF schedule and ReduceLROnPlateau scheduler keep the generalisation gap controlled throughout training.*
 
 ---
 
