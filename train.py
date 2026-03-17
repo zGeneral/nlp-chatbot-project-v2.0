@@ -41,26 +41,15 @@ is the attention mechanism — providing a controlled apples-to-apples ablation.
 """
 
 import os
-
-# Suppress TensorFlow / oneDNN startup noise before any other imports.
-# TensorBoard pulls in TF as a backend; these env vars silence the warnings
-# about cuFFT/cuDNN/cuBLAS factory re-registration and oneDNN opts — they
-# are harmless but clutter the training log.
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
-os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
-
 import json
 import math
 import time
-import sys
-import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
 
 from config import CONFIG, get_tf_ratio, set_seed
 from dataset import build_dataloaders
@@ -78,7 +67,6 @@ def train_epoch(
     config: dict,
     device: torch.device,
     epoch: int,
-    writer: SummaryWriter,
     global_step: int,
     scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau = None,
 ) -> Tuple[float, float, int]:
@@ -94,15 +82,12 @@ def train_epoch(
         - bf16 does not underflow like fp16 — GradScaler is not needed.
         - NaN loss: batch is skipped (nan_count incremented, no backward).
         - NaN grad norm: optimizer.step() is skipped (nan_count incremented).
-        - Periodic checkpoint written every 2000 optimizer steps (atomic).
     """
     model.train()
 
     vocab_size: int = config["vocab_size"]
     grad_accum_steps: int = config["grad_accum_steps"]
     max_grad_norm: float = config["max_grad_norm"]
-    checkpoint_dir: str = config["checkpoint_dir"]
-    periodic_ckpt_steps: int = 2000   # save a step-level checkpoint every N optimizer steps
     _amp_dtype = getattr(torch, config.get("amp_dtype", "bfloat16"))   # torch.bfloat16
 
     # Compute tf_ratio once — it is constant within an epoch.
@@ -183,32 +168,6 @@ def train_epoch(
             total_loss += loss.item()
             total_grad_norm += grad_norm
             n_updates += 1
-
-            # ── TensorBoard step-level logging ──────────────────────────────
-            writer.add_scalar("train/loss_step", loss.item(), global_step)
-            writer.add_scalar("train/grad_norm_step", grad_norm, global_step)
-            writer.add_scalar("train/lr_step", optimizer.param_groups[0]["lr"], global_step)
-
-            # ── Periodic checkpoint (atomic: write .tmp then os.replace) ────
-            if global_step % periodic_ckpt_steps == 0:
-                ckpt_path = os.path.join(
-                    checkpoint_dir,
-                    f"{config.get('_model_type', 'model')}_step_{global_step}.pt",
-                )
-                tmp_path = ckpt_path + ".tmp"
-                torch.save(
-                    {
-                        "epoch": epoch,
-                        "global_step": global_step,
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state": optimizer.state_dict(),
-                        "scheduler_state": scheduler.state_dict() if scheduler is not None else None,
-                        "train_loss_so_far": total_loss / max(n_updates, 1),
-                        "tf_ratio": tf_ratio,
-                    },
-                    tmp_path,
-                )
-                os.replace(tmp_path, ckpt_path)
 
             pbar.set_postfix(
                 loss=f"{loss.item():.4f}",
@@ -339,7 +298,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     config["_model_type"] = model_type
 
     # ── 1. Data ──────────────────────────────────────────────────────────────
-    # FIX M6 — exact call as specified in INTERFACES.md §4
     train_loader, val_loader, _ = build_dataloaders(
         artifact_dir=config["artifact_dir"],
         batch_size=config["batch_size"],
@@ -347,7 +305,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         max_ctx_len=config["max_ctx_tokens"],
         max_resp_len=config["max_resp_tokens"] + 2,   # +2 for <sos> and <eos>
         pad_idx=config["pad_idx"],
-        max_train_samples=config.get("max_train_samples", 0),
     )
 
     # ── 2. Model ─────────────────────────────────────────────────────────────
@@ -372,11 +329,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     )
     _amp_dtype = getattr(torch, config.get("amp_dtype", "bfloat16"))   # read from config
 
-    # ── 5. TensorBoard ────────────────────────────────────────────────────────
-    tb_dir = os.path.join(config["tensorboard_dir"], model_type)
-    writer = SummaryWriter(log_dir=tb_dir)
-
-    # ── 6. Resume — prefer last-epoch checkpoint to avoid re-running epochs ──
+    # ── 5. Resume — prefer last-epoch checkpoint to avoid re-running epochs ──
     checkpoint_dir = config["checkpoint_dir"]
     os.makedirs(checkpoint_dir, exist_ok=True)
     best_ckpt_path = os.path.join(checkpoint_dir, f"{model_type}_best.pt")
@@ -422,23 +375,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         print(f"[{model_type}] Resumed at epoch {start_epoch}, step {global_step}, "
               f"best_val={best_val_loss:.4f}")
 
-    # ── 6b. torch.compile — JIT-compile the model after weights are loaded ────
-    # Compiling AFTER checkpoint load avoids state_dict key mismatches that
-    # can occur if the model is compiled before load_state_dict in some
-    # PyTorch versions. Only enabled on CUDA; MPS/CPU gain little.
-    # Skipped on Windows: torch.compile's default inductor backend requires
-    # Triton, which has no Windows support (fails on first forward call, not
-    # at compile time, so a try/except around compile() is not sufficient).
-    import sys as _sys
-    if (torch.cuda.is_available()
-            and hasattr(torch, "compile")
-            and _sys.platform != "win32"):
-        try:
-            model = torch.compile(model)
-            print(f"[{model_type}] torch.compile enabled — first epoch will be slower (compilation)")
-        except Exception as e:
-            print(f"[{model_type}] torch.compile skipped: {e}")
-
     num_epochs: int = config["num_epochs"]
     print(f"[{model_type}] Training epochs {start_epoch}–{num_epochs}")
 
@@ -466,7 +402,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             config=config,
             device=device,
             epoch=epoch,
-            writer=writer,
             global_step=global_step,
             scheduler=scheduler,
         )
@@ -488,13 +423,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         elapsed = time.time() - epoch_start
         lr: float = optimizer.param_groups[0]["lr"]
 
-        # 7e. TensorBoard epoch-level logging.
-        writer.add_scalar("val/loss", val_loss, epoch)
-        writer.add_scalar("val/ppl", val_ppl, epoch)
-        writer.add_scalar("train/loss_epoch", train_loss, epoch)
-        writer.add_scalar("learning_rate", lr, epoch)
-        writer.add_scalar("tf_ratio", tf_ratio, epoch)
-
         # 7f. Save best checkpoint (atomic: write .tmp then os.replace).
         # Reset best_val_loss at the Phase 2 boundary.  When TF drops at
         # epoch phase1_end+1, the decoder switches from ground-truth to its
@@ -515,13 +443,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         _improved = val_loss < best_val_loss
         if _improved:
             best_val_loss = val_loss
-            # AC2-C2: include run provenance in every best checkpoint.
-            try:
-                _git = subprocess.check_output(
-                    ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
-                ).decode().strip()
-            except Exception:
-                _git = "unknown"
             ckpt_data = {
                 "epoch": epoch,
                 "global_step": global_step,
@@ -535,9 +456,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
                 "tf_ratio": tf_ratio,
                 "config": dict(config),
                 "history": history,
-                "git_hash": _git,
-                "torch_version": torch.__version__,
-                "run_timestamp": time.strftime("%Y%m%d_%H%M%S"),
             }
             tmp_path = best_ckpt_path + ".tmp"
             torch.save(ckpt_data, tmp_path)
@@ -605,18 +523,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             f"Grad: {avg_gnorm:.3f} | "
             f"{elapsed:.1f}s"
         )
-        # After the first epoch: report peak GPU memory and ETA for planning.
-        if epoch == start_epoch:
-            if torch.cuda.is_available():
-                peak = torch.cuda.max_memory_allocated() / 1e9
-                print(f"  Peak GPU memory epoch {epoch}: {peak:.2f} GB / 80.0 GB")
-            if elapsed > 0 and num_epochs > start_epoch:
-                remaining = num_epochs - epoch
-                eta_min = (elapsed * remaining) / 60
-                print(f"  ETA: ~{eta_min:.0f} min for {remaining} remaining epoch(s) "
-                      f"(this model, assuming constant epoch time)")
-
-    writer.close()
 
     # ── 8. Save history JSON (atomic write) ─────────────────────────────────
     history_path = os.path.join(checkpoint_dir, f"{model_type}_history.json")
@@ -634,43 +540,12 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
 
     Args:
         cfg:         Config dict overrides. Defaults to CONFIG from config.py.
-        script_name: Used for the run log filename (e.g. "train_mini").
-
-    CLI args:
-        --mode full    Full training run (default).
-        --mode sample  Quick smoke test: 10K pairs, 2 epochs. Verifies the full code
-                       path (both models, checkpointing, TensorBoard) in < 5 minutes.
+        script_name: Used for the run log filename (e.g. "train").
     """
-    import argparse
     from logging_utils import setup_run_logging
-
-    parser = argparse.ArgumentParser(
-        description="Train Seq2Seq chatbot — baseline (no attention) + Bahdanau attention"
-    )
-    parser.add_argument(
-        "--mode",
-        choices=["full", "sample"],
-        default="full",
-        help=(
-            "full: standard training (batch=512, ReduceLROnPlateau); "
-            "sample: 2-epoch smoke test on 10K pairs to verify end-to-end correctness"
-        ),
-    )
-    args = parser.parse_args()
 
     # ── Build active config — start from provided cfg or global CONFIG ────────
     active_cfg = dict(cfg if cfg is not None else CONFIG)
-
-    if args.mode == "sample":
-        # Smoke test: run the complete code path (both models, checkpoints,
-        # TensorBoard, validation) on a tiny subset. Must finish in < 5 min.
-        active_cfg.update({
-            "max_train_samples": 10000,   # subsample train to 10K pairs
-            "num_epochs":        2,        # just 2 epochs
-            "batch_size":        256,      # smaller batch for fast startup
-            "grad_accum_steps":  1,
-            "num_workers":       2,
-        })
 
     setup_run_logging(script_name, log_dir=active_cfg.get("log_dir", "new/logs"))
 
@@ -683,47 +558,13 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
     eff_batch = active_cfg["batch_size"] * active_cfg["grad_accum_steps"]
     gpu_name  = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A"
     print("=" * 70)
-    if args.mode == "sample":
-        print("  SAMPLE MODE  — smoke test (10 K pairs, 2 epochs)")
-        print("  Exercises the full code path: both models, checkpoints, TensorBoard")
-    else:
-        print("  FULL MODE  — batch=256×2=512 effective  |  RTX 3080 12 GB")
     print(f"  Device  : {device}  ({gpu_name})")
     print(f"  Batch   : {active_cfg['batch_size']} × {active_cfg['grad_accum_steps']} accum "
           f"= {eff_batch} effective")
-    print(f"  Epochs  : {active_cfg['num_epochs']}  |  Workers : {active_cfg['num_workers']}")
-    print(f"  LR      : {active_cfg['learning_rate']:.1e}  "
-          f"|  Plateau factor : {active_cfg.get('lr_factor', 0.5)}  "
-          f"|  Plateau patience : {active_cfg.get('lr_patience', 3)}")
-    print(f"  Label smooth : {active_cfg.get('label_smoothing', 0.0)}  "
-          f"|  Patience : {active_cfg.get('patience', 0)}  "
-          f"|  TF floor : {active_cfg['tf_schedule']['phase3_tf']}")
+    print(f"  Epochs  : {active_cfg['num_epochs']}  |  LR : {active_cfg['learning_rate']:.1e}")
     print("=" * 70)
 
     os.makedirs(active_cfg["checkpoint_dir"], exist_ok=True)
-    os.makedirs(active_cfg["tensorboard_dir"], exist_ok=True)
-
-    # AC2-C2: log environment metadata (git hash, versions, timestamp).
-    try:
-        git_hash = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
-        ).decode().strip()
-    except Exception:
-        git_hash = "unknown"
-    run_info = {
-        "git_hash":       git_hash,
-        "python_version": sys.version,
-        "torch_version":  torch.__version__,
-        "cuda_version":   torch.version.cuda or "cpu",
-        "run_timestamp":  time.strftime("%Y%m%d_%H%M%S"),
-        "seed":           active_cfg.get("seed", 42),
-        "device":         str(device),
-    }
-    run_info_path = os.path.join(active_cfg["checkpoint_dir"], "run_info.json")
-    with open(run_info_path, "w") as fh:
-        json.dump(run_info, fh, indent=2)
-    print(f"Run info saved → {run_info_path}")
-    print(f"  git: {git_hash}  |  torch: {torch.__version__}  |  seed: {run_info['seed']}")
 
     # ── Baseline ─────────────────────────────────────────────────────────────
     print("\n" + "=" * 70)

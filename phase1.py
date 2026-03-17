@@ -977,42 +977,6 @@ def _generate_pairs_for_split(
 
     return pairs, dict(disc)
 
-
-def _write_stage4_samples(
-    splits: Dict[str, List[Dict]],
-    artifact_dir: Path,
-    n: int = 200,
-    seed: int = 42,
-) -> None:
-    """Write n randomly-sampled pairs from each split as a readable text file.
-
-    Files are saved alongside the main stage 4 JSONs as:
-        stage4_train_samples.txt
-        stage4_val_samples.txt
-        stage4_test_samples.txt
-
-    Each pair is formatted as:
-        ── Pair 001 ──────────────────────────────────────
-        CTX : <context with __eot__ separators>
-        RESP: <response>
-
-    Re-running always overwrites so the samples stay fresh.
-    """
-    rng = random.Random(seed)
-    for split_name, pairs in splits.items():
-        sample = rng.sample(pairs, min(n, len(pairs)))
-        out_path = artifact_dir / f"stage4_{split_name}_samples.txt"
-        with open(out_path, "w", encoding="utf-8") as f:
-            f.write(f"Stage 4 — {split_name.upper()} samples  "
-                    f"({len(sample)} of {len(pairs):,} pairs, seed={seed})\n")
-            f.write("=" * 70 + "\n\n")
-            for idx, pair in enumerate(sample, 1):
-                f.write(f"── Pair {idx:03d} {'─' * 50}\n")
-                f.write(f"CTX : {pair['ctx']}\n")
-                f.write(f"RESP: {pair['resp']}\n\n")
-        print(f"  Saved {len(sample)} {split_name} samples → {out_path.name}")
-
-
 def stage4_generate_pairs(
     train_dialogues: List[Dict],
     val_dialogues: List[Dict],
@@ -1627,16 +1591,6 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
         gc.collect()
         print(f"Stage 4 done ({_elapsed(t0)})  train={len(train_pairs):,}  val={len(val_pairs):,}  test={len(test_pairs):,}\n")
 
-    # Write 200-pair human-readable sample files for each split so you can
-    # inspect data quality without opening the full multi-hundred-MB JSONs.
-    # Samples are drawn randomly each run (reproducible via seed below).
-    _write_stage4_samples(
-        {"train": train_pairs, "val": val_pairs, "test": test_pairs},
-        artifact_dir,
-        n=200,
-        seed=42,
-    )
-
     # ── Stage 4.5 — Domain filter (optional) ─────────────────────────────────
     s45_train_path = artifact_dir / "stage4_5_train_pairs.json"
     s45_val_path   = artifact_dir / "stage4_5_val_pairs.json"
@@ -1656,13 +1610,6 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
         _save_json(val_pairs,   s45_val_path)
         _save_json(test_pairs,  s45_test_path)
         _save_json(s45_stats,   s45_stats_path)
-        # Overwrite sample files with filtered pairs so inspect files are accurate
-        _write_stage4_samples(
-            {"train": train_pairs, "val": val_pairs, "test": test_pairs},
-            artifact_dir,
-            n=200,
-            seed=42,
-        )
         print(
             f"Stage 4.5 done ({_elapsed(t0)})  "
             f"train={len(train_pairs):,}  val={len(val_pairs):,}  test={len(test_pairs):,}\n"

@@ -1,98 +1,16 @@
 """
-models.py — Seq2Seq architecture (clean from scratch).
-
-─────────────────────────────────────────────────────────────────────────────
-Architectural Overview: Attention vs. Baseline Seq2Seq Models
-─────────────────────────────────────────────────────────────────────────────
-
-This module implements two sequence-to-sequence (Seq2Seq) architectures for
-an open-domain NLP chatbot, enabling a controlled ablation study on the
-contribution of attention to response quality.
-
-                         ┌─────────────────────────┐
-                         │   SHARED: Input Pipeline │
-                         └─────────────────────────┘
-
-Both models share the same input pipeline. Raw text is tokenised into subword
-units by a SentencePiece BPE model (vocab_size=16,000) trained on the project
-corpus in Phase 1 Stage 5. Each token ID is mapped to a 300-dimensional dense
-vector via a FastText embedding matrix produced in Phase 1 Stages 7–8, where
-FastText is trained from scratch on the BPE-tokenised Ubuntu Dialogue Corpus
-(skip-gram, 10 epochs, all pairs) — not loaded from an external source. The
-embedding matrix is fine-tuned during seq2seq training (freeze=False).
-
-                         ┌─────────────────────────┐
-                         │   SHARED: BiLSTM Encoder │
-                         └─────────────────────────┘
-
-Both models share the same bidirectional LSTM (BiLSTM) encoder. Unlike
-a unidirectional LSTM — which processes tokens left-to-right and compresses
-the full source sequence into a single fixed-length vector — the BiLSTM runs
-a forward and a backward pass simultaneously. Every encoder position therefore
-has access to both past and future context, producing richer token
-representations. The final hidden states of both directions are merged through
-a learned linear bridge (EncoderDecoderBridge) to initialise the decoder with
-full bidirectional coverage.
-
-                  ┌──────────────┴───────────────┐
-                  │                              │
-        ┌─────────▼──────────┐       ┌───────────▼──────────┐
-        │  Attention Decoder │       │   Baseline Decoder   │
-        │  (BahdanauAttention│       │   (fixed context,    │
-        │   — dynamic c_t)   │       │    no attention)     │
-        └────────────────────┘       └──────────────────────┘
-
-At this point the two models diverge only in how they form the context
-vector fed to the decoder LSTM at each step. The attention decoder
-(AttentionDecoder) uses Bahdanau additive attention (Bahdanau et al., 2015):
-at step t it computes a scalar energy score e_{t,i} = v⊤ · tanh(W_enc h_i +
-W_dec s_t) for every encoder output position, normalises with softmax to
-obtain weights α_{t,i}, and forms a dynamic context vector c_t = Σ α_{t,i}
-h_i. This allows the decoder to selectively attend to the most relevant source
-tokens at each generation step — particularly valuable for longer or
-structurally complex utterances. The baseline decoder (BaselineDecoder)
-replaces this with a fixed context vector — the final encoder output timestep
-— held constant across all decoding steps.
-
-                         ┌─────────────────────────┐
-                         │   SHARED: Output Stage  │
-                         └─────────────────────────┘
-
-Beyond the context vector, both decoders are identical: the same input
-dimensionality (embed_dim + enc_hidden_dim = 1,324), the same projection
-bottleneck, dropout schedule, and shared embedding weight tying. The two
-models are therefore parameter-near (<1.2% total parameter difference), and
-any performance gap between them can be attributed directly to the presence
-or absence of the attention mechanism, providing a clean and interpretable
-ablation.
-─────────────────────────────────────────────────────────────────────────────
+models.py — Seq2Seq architecture: BiLSTM encoder + Bahdanau attention decoder (ablation model)
+            and a parameter-fair baseline decoder (no attention).
 
 Components:
-  1. create_pretrained_embedding  — loads Phase 1 Stage 8 .npy matrix
-                                    (FastText trained on project corpus,
-                                     NOT an external pretrained model)
-  2. Encoder                      — BIDIRECTIONAL 2-layer LSTM (key upgrade)
-  3. EncoderDecoderBridge         — projects bidir h_n/c_n to decoder shape
-  4. BahdanauAttention            — additive attention with key precomputation
-  5. AttentionDecoder             — with projection bottleneck
-  6. BaselineDecoder              — parameter-fair baseline (no attention)
-  7. Seq2Seq                      — wraps encoder + bridge + decoder
-
-Key architectural decisions vs old models.py:
-  - Encoder is now BIDIRECTIONAL: forward + backward pass over context.
-    Final hidden state = [forward_layer_n ; backward_layer_n] bridged to decoder.
-    This is the single biggest quality upgrade over the prior codebase.
-  - hidden_dim=512 per direction → 1024 total effective encoder output.
-  - EncoderDecoderBridge merges the 4 interleaved bidir hidden states into
-    2 decoder-sized states via a learned linear projection.
-  - Shared embedding (weight tying): encoder and decoder share one nn.Embedding.
-    Justified: single vocabulary, reduces params, regularises.
-  - Projection bottleneck: [hidden+context](2048) → proj(512) → vocab(16k).
-    More important now — without it the output matrix would be 2048×16k = 32M.
-  - BahdanauAttention: keys_proj precomputed once by the decoder and passed
-    explicitly per step, avoiding recomputing W_enc(encoder_outputs) trg_len-1
-    times. Explicit passing is safe under DataParallel / gradient checkpointing.
-  - No import inside forward(). All imports at module top.
+  create_pretrained_embedding  — loads Phase 1 Stage 8 .npy matrix
+  Encoder                      — bidirectional 2-layer LSTM
+  EncoderDecoderBridge         — projects bidir h_n/c_n to decoder hidden size
+  BahdanauAttention            — additive attention with precomputed keys
+  AttentionDecoder             — with Bahdanau attention + projection bottleneck
+  BaselineDecoder              — parameter-fair baseline (fixed context, no attention)
+  Seq2Seq                      — wraps encoder + bridge + decoder
+  build_model                  — factory function
 """
 
 

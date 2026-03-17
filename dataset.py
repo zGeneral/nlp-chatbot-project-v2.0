@@ -218,7 +218,6 @@ def build_dataloaders(
     max_ctx_len: int = 100,
     max_resp_len: int = 42,    # 40 tokens + <sos> + <eos>
     pad_idx: int = 0,
-    max_train_samples: int = 0,  # 0 = use all; set >0 to subsample train split
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Build train / val / test DataLoaders from Phase 1 Stage 6 artifacts.
@@ -228,32 +227,22 @@ def build_dataloaders(
         stage6_train_ids.jsonl, stage6_val_ids.jsonl, stage6_test_ids.jsonl
 
     Args:
-        artifact_dir:       Directory containing stage6_*_ids.jsonl files.
-        batch_size:         Samples per batch.
-        num_workers:        DataLoader worker processes (0 = main process; use 4 on Windows RTX).
-        max_ctx_len:        Hard truncation for context sequences passed to UbuntuPairDataset.
-        max_resp_len:       Hard truncation for response sequences (incl. <sos>/<eos>).
-        pad_idx:            Padding token ID (must match config pad_idx, typically 0).
-        max_train_samples:  If > 0, randomly subsample train split to this many pairs.
-                            Val and test are always loaded in full. Used by train_mini.py.
+        artifact_dir:  Directory containing stage6_*_ids.jsonl files.
+        batch_size:    Samples per batch.
+        num_workers:   DataLoader worker processes (0 = main process; use 4 on Windows RTX).
+        max_ctx_len:   Hard truncation for context sequences passed to UbuntuPairDataset.
+        max_resp_len:  Hard truncation for response sequences (incl. <sos>/<eos>).
+        pad_idx:       Padding token ID (must match config pad_idx, typically 0).
 
     Returns:
         (train_loader, val_loader, test_loader)
     """
-    import random as _random
     artifact_dir = Path(artifact_dir)
     _collate = partial(collate_fn, pad_idx=pad_idx)
 
     train_ds = UbuntuPairDataset(
         str(artifact_dir / "stage6_train_ids.jsonl"), max_ctx_len, max_resp_len
     )
-
-    # Subsample train if requested (mini runs for fast iteration).
-    if max_train_samples > 0 and len(train_ds) > max_train_samples:
-        indices = _random.Random(42).sample(range(len(train_ds)), max_train_samples)
-        from torch.utils.data import Subset
-        train_ds = Subset(train_ds, indices)
-        print(f"  [mini] Train subsampled: {max_train_samples:,} of {len(train_ds.dataset):,} pairs (seed=42)")
 
     val_ds = UbuntuPairDataset(
         str(artifact_dir / "stage6_val_ids.jsonl"), max_ctx_len, max_resp_len

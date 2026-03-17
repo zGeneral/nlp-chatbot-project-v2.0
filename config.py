@@ -57,21 +57,7 @@ _TRAINING = {
 }
 
 # ── Teacher-Forcing Schedule ───────────────────────────────────────────────────
-# 3-phase schedule with gradual annealing to address exposure bias.
-#
-# Insight from run 1: epochs 1–5 under TF=1.0 produce large loss drops (~5.5→4.25).
-# Epochs 6–15 under TF=1.0 yield only ~0.13 additional loss reduction while
-# deepening exposure bias. The dramatic val_loss improvement at TF=0.8/0.5 in
-# the baseline (7.89→6.00) confirms the representations are good — the decoder
-# just needs to practice self-feeding earlier.
-#
-# Phase 1 — Foundation  (epochs  1– 5): TF = 1.0        (burn in representations)
-# Phase 2 — Annealing   (epochs  6–12): TF 0.9 → 0.5    (linear decay, per-epoch)
-# Phase 3 — Maturation  (epochs 13–20): TF = 0.5         (floor; both models stabilise)
-#
-# TF floor is 0.5 for both models. The baseline decoder has no attention to recover
-# from compounding errors; TF < 0.5 causes collapse. Floor is kept identical for
-# a fair apples-to-apples ablation.
+# 3-phase schedule: full TF → linear annealing → floor.
 _TF_SCHEDULE = {
     "tf_schedule": {
         "phase1_end":       5,    # last epoch (inclusive) at TF = phase1_tf
@@ -84,18 +70,7 @@ _TF_SCHEDULE = {
 }
 
 # ── LR Scheduler ──────────────────────────────────────────────────────────────
-# ReduceLROnPlateau — the adaptive strategy proven on the original RTX 3090 run.
-#
-# Rationale: cosine+warmup is untested on this architecture and consumes
-# ~500 warm-up steps before the model learns anything. ReduceLROnPlateau is
-# adaptive: it only halves LR when validation loss stalls, which is the right
-# signal for a seq2seq model where val loss depends strongly on the TF regime.
-#
-# NOTE: The Phase 2 reset (best_val_loss=inf at epoch phase1_end+1) prevents
-# premature halving during the TF=1.0 phase — plateau patience starts fresh
-# when TF annealing begins.
-#
-# scheduler.step(val_loss) is called ONCE PER EPOCH after validation.
+# ReduceLROnPlateau: halves LR when val loss stalls; scheduler.step(val_loss) once per epoch.
 _LR_SCHEDULER = {
     "lr_scheduler_patience": 3,    # ReduceLROnPlateau patience (epochs)
     "lr_scheduler_factor":   0.5,  # LR multiplicative decay factor on plateau
@@ -127,19 +102,9 @@ _NEW_DIR = Path(__file__).resolve().parent   # .../NLP_Final_Project_v2/new/
 _PATHS = {
     "artifact_dir":           str(_NEW_DIR / "artifacts"),
     "checkpoint_dir":         str(_NEW_DIR / "checkpoints"),
-    "tensorboard_dir":        str(_NEW_DIR / "tb_logs"),
     "log_dir":                str(_NEW_DIR / "logs"),
     "spm_model_path":         str(_NEW_DIR / "artifacts" / "stage5_spm.model"),
     "embedding_matrix_path":  str(_NEW_DIR / "artifacts" / "stage8_embedding_matrix.npy"),
-}
-
-# ── Chat Inference ────────────────────────────────────────────────────────────
-_CHAT = {
-    "chat_max_history_turns": 10,   # turns kept in sliding context window
-    "top_p":                  0.9,  # nucleus sampling cumulative probability
-    "temperature":            0.8,  # softmax temperature for sampling
-    "ngram_block":            3,    # block repeated n-grams during decoding
-    "max_decode_len":         40,   # maximum tokens generated per response
 }
 
 # ── Reproducibility ───────────────────────────────────────────────────────────
@@ -157,7 +122,6 @@ CONFIG: dict = {
     **_LOSS,
     **_DATA,
     **_PATHS,
-    **_CHAT,
     **_REPRODUCIBILITY,
 }
 
