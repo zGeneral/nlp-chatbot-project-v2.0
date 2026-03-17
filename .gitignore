@@ -69,3 +69,4 @@ Thumbs.db
 *.env
 secrets.yaml
 report/figures/*.pdf
+~$*.docx
