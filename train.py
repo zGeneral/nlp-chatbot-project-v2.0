@@ -25,7 +25,7 @@ is the attention mechanism — providing a controlled apples-to-apples ablation.
     prematurely halving LR during the TF=1.0 exposure-bias phase.
 
   EARLY STOPPING:
-    Patience = 5 epochs, monitored only from Phase 2 onward (epoch > 5).
+    Patience = 4 epochs, monitored only from Phase 2 onward (epoch > 5).
 
   GRADIENT CLIPPING:
     clip = 1.0. Allows valid large gradients during TF=1.0 phase.
@@ -213,7 +213,7 @@ def build_optimizer_and_scheduler(
     Args:
         model:   The model whose parameters to optimise.
         config:  CONFIG dict — must contain ``learning_rate``, ``weight_decay``,
-                 ``lr_patience``, ``lr_factor``, ``lr_min``.
+                 ``lr_scheduler_patience``, ``lr_scheduler_factor``, ``lr_min``.
 
     Returns:
         (optimizer, scheduler)
@@ -240,11 +240,11 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
 
     Saves:
       {checkpoint_dir}/{model_type}_best.pt      — best val-loss checkpoint (atomic)
-      {checkpoint_dir}/{model_type}_step_{n}.pt  — periodic checkpoints (atomic)
+      {checkpoint_dir}/{model_type}_last.pt      — last-epoch checkpoint (atomic, for resume)
       {checkpoint_dir}/{model_type}_history.json — training history
 
     Returns:
-        List of per-epoch history dicts.
+        Dict with per-epoch train_loss, val_loss, tf_ratios, and lrs lists.
     """
     # Stash model_type in config so train_epoch can name periodic checkpoints.
     config = dict(config)
@@ -278,7 +278,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         ignore_index=config["pad_idx"],
         label_smoothing=config.get("label_smoothing", 0.0),
     )
-    _amp_dtype = getattr(torch, config.get("amp_dtype", "bfloat16"))   # read from config
+    _amp_dtype = getattr(torch, config.get("amp_dtype", "bfloat16"))
 
     # ── 5. Resume — prefer last-epoch checkpoint to avoid re-running epochs ──
     checkpoint_dir = config["checkpoint_dir"]
@@ -513,10 +513,9 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
     baseline_history = train_model("baseline", active_cfg, device)
 
     # Clear GPU cache between models.  After baseline training the CUDA
-    # allocator holds ~55-70 GB of cached-but-unused blocks.  The attention
-    # model needs more per-step memory (attention weight tensors over the full
-    # source sequence) and can OOM due to fragmentation even though total
-    # capacity is sufficient.
+    # allocator retains cached VRAM blocks.  The attention model needs extra
+    # per-step memory (attention weight tensors over the full source sequence)
+    # and can OOM due to fragmentation even when total capacity is sufficient.
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()

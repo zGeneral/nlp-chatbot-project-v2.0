@@ -52,13 +52,13 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 # ── Resolve paths relative to this file (works from any working directory) ───
-_NEW_DIR = Path(__file__).resolve().parent          # .../NLP_Final_Project_v2/new/
-_PROJECT_DIR = _NEW_DIR.parent                      # .../NLP_Final_Project_v2/
+_NEW_DIR = Path(__file__).resolve().parent          # .../nlp-chatbot-project-v2.0/
+_PROJECT_DIR = _NEW_DIR.parent                      # parent of the project root
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
 PHASE1_CONFIG = {
-    # Corpus source — data/ lives inside new/ alongside this file
+    # Corpus source — data/ lives alongside this file in the project root
     "corpus_dir":                    str(_NEW_DIR / "data" / "Ubuntu-dialogue-corpus"),
 
     # Dialogue-level quality filters (set False to disable individually)
@@ -376,8 +376,9 @@ def _stage_done(stage: int, artifact_dir: Path) -> bool:
 def _clean_text(text: str) -> str:
     """Clean a single utterance string.
 
-    Steps: URL/path normalisation, IRC nick stripping, lowercase,
-    contraction expansion, non-alphanumeric removal, whitespace collapse.
+    Steps: URL→__url__, path→__path__, IP→__ip__ normalisation; IRC nick
+    prefix (<nick>) and addressee pattern (nick: / nick,) stripped; lowercase;
+    contraction expansion; non-alphanumeric removal; whitespace collapse.
     """
     if not text:
         return ""

@@ -1,16 +1,13 @@
 """
 config.py — Single source of truth for all hyperparameters and paths.
 
-Every other file in new/ imports from here. No magic numbers anywhere else.
+Every other file imports from here. No magic numbers anywhere else.
 
 Implementation notes:
 - CONFIG is a plain dict (not a dataclass) for easy JSON serialisation
   and per-script override via CONFIG.update({...}).
-- All paths are computed relative to this file's location (new/) so the
-  code works correctly regardless of which directory you run from —
-  project root, new/, or any other working directory.
-- Notebooks may still override paths with absolute Drive paths, but it
-  is no longer required.
+- All paths are computed relative to this file's location so the
+  code works correctly regardless of which directory you run from.
 """
 
 import json
@@ -90,12 +87,11 @@ _DATA = {
     "num_workers":           4,    # DataLoader workers (set to 0 to disable multiprocessing)
 }
 
-# ── Path root (always resolves to the new/ directory, wherever you run from) ──
-_NEW_DIR = Path(__file__).resolve().parent   # .../NLP_Final_Project_v2/new/
+# ── Path root (resolves to this file's directory, wherever you run from) ──────
+_NEW_DIR = Path(__file__).resolve().parent   # .../nlp-chatbot-project-v2.0/
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 # Absolute paths computed from this file's location — work from any cwd.
-# Notebooks may still override with Drive paths via CONFIG.update({...}).
 _PATHS = {
     "artifact_dir":           str(_NEW_DIR / "artifacts"),
     "checkpoint_dir":         str(_NEW_DIR / "checkpoints"),
