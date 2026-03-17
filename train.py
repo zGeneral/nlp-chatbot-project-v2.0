@@ -18,14 +18,7 @@ is the attention mechanism — providing a controlled apples-to-apples ablation.
   recover from compounding errors; TF < 0.5 causes collapse. Floor is kept
   identical for a fair comparison.
 
-  Rationale for change from run 1:
-    Run 1 kept TF=1.0 for 15 epochs, deepening exposure bias with diminishing
-    returns (only ~0.13 loss reduction in epochs 6–15). The baseline's dramatic
-    val_loss drop (7.89→6.00) when TF finally annealed proved the learned
-    representations were valuable but locked behind exposure bias. Annealing
-    from epoch 6 unlocks this 7-epoch window that was previously wasted.
-
-  LR STRATEGY: ReduceLROnPlateau (adaptive, proven on original RTX 3090 run).
+  LR STRATEGY: ReduceLROnPlateau.
     factor=0.5, patience=3, min_lr=1e-5.
     scheduler.step(val_loss) is called once PER EPOCH after validation.
     The Phase 2 reset (best_val_loss=inf at epoch 6) prevents plateau from
@@ -33,8 +26,6 @@ is the attention mechanism — providing a controlled apples-to-apples ablation.
 
   EARLY STOPPING:
     Patience = 5 epochs, monitored only from Phase 2 onward (epoch > 5).
-    Val loss under autoregressive evaluation is not meaningful during Phase 1
-    because the model isn't yet training for that objective.
 
   GRADIENT CLIPPING:
     clip = 1.0. Allows valid large gradients during TF=1.0 phase.
@@ -54,9 +45,6 @@ from tqdm import tqdm
 from config import CONFIG, get_tf_ratio, set_seed
 from dataset import build_dataloaders
 from models import build_model
-
-# bf16 does not underflow like fp16 — GradScaler is not needed.
-# torch.amp.autocast with dtype=torch.bfloat16 is sufficient.
 
 
 def train_epoch(
@@ -105,8 +93,7 @@ def train_epoch(
         src_lengths: torch.Tensor = batch["src_lengths"].to(device, non_blocking=True)   # [B]
         trg: torch.Tensor = batch["trg"].to(device, non_blocking=True)                   # [B, trg_len]
 
-        # ── Forward pass under bf16 autocast ───────────────────────────────
-        # bf16 does not underflow like fp16 — GradScaler is not needed.
+        # ── Forward pass under bf16 AMP ────────────────────────────────────
         # device.type is used dynamically so CPU debug runs don't warn/fail.
         _device_type = device.type if hasattr(device, "type") else str(device).split(":")[0]
         with torch.amp.autocast(device_type=_device_type, dtype=_amp_dtype,
@@ -211,10 +198,6 @@ def build_optimizer_and_scheduler(
     """
     Build AdamW optimizer and ReduceLROnPlateau scheduler.
 
-    ReduceLROnPlateau is the adaptive strategy proven on the original RTX 3090
-    run. It halves LR when val_loss stalls, which is the correct signal for a
-    seq2seq model where the val metric depends heavily on the TF regime.
-
     IMPORTANT: scheduler.step(val_loss) must be called ONCE PER EPOCH after
     validation — NOT once per optimizer step.
 
@@ -291,8 +274,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     optimizer, scheduler = build_optimizer_and_scheduler(model, config)
 
     # ── 4. Loss ───────────────────────────────────────────────────────────────
-    # label_smoothing=0.0 during TF=1.0 phase — smoothing fights sharp token
-    # predictions that the TF schedule is designed to burn in.
     criterion = nn.CrossEntropyLoss(
         ignore_index=config["pad_idx"],
         label_smoothing=config.get("label_smoothing", 0.0),
@@ -318,7 +299,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     }
 
     # Prefer last checkpoint (has most recent epoch) over best checkpoint
-    # to avoid silently discarding epochs on an unexpected disconnect (QA2-M1).
     resume_path = last_ckpt_path if os.path.exists(last_ckpt_path) else (
         best_ckpt_path if os.path.exists(best_ckpt_path) else None
     )
@@ -407,9 +387,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             print(f"[{model_type}] Phase 2 begins (epoch {epoch}) — "
                   f"resetting best_val_loss and early-stopping counter")
 
-        # Capture improvement BEFORE updating best_val_loss so early stopping
-        # can use the same flag (avoids off-by-one: after the update,
-        # val_loss == best_val_loss which would look like "no improvement").
+        # Capture improvement BEFORE updating best_val_loss.
         _improved = val_loss < best_val_loss
         if _improved:
             best_val_loss = val_loss
@@ -437,10 +415,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         history["tf_ratios"].append(tf_ratio)
         history["lrs"].append(lr)
 
-        # Early stopping — only monitored from Phase 2 onward.
-        # During Phase 1 (TF=1.0), autoregressive val loss is not meaningful
-        # because the model isn't yet training for that objective; counting
-        # non-improvements there would trigger a premature stop.
+        # Early stopping active from Phase 2 onward.
         if _patience > 0 and epoch > config["tf_schedule"]["phase1_end"]:
             if _improved:
                 _no_improve = 0

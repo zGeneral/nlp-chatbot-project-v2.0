@@ -47,7 +47,7 @@ _ARCHITECTURE = {
 _TRAINING = {
     "learning_rate":         3e-4,    # peak LR (reached after warmup; cosine decays from here)
     "weight_decay":          1e-5,    # L2 regularisation
-    "max_grad_norm":         1.0,     # gradient clipping threshold (gentler than 0.5)
+    "max_grad_norm":         1.0,     # gradient clipping
     "batch_size":            256,     # per-step batch size
     "grad_accum_steps":      2,       # effective batch = batch_size × grad_accum_steps = 512
     "num_epochs":            20,      # total training epochs
@@ -77,9 +77,6 @@ _LR_SCHEDULER = {
 }
 
 # ── Loss ──────────────────────────────────────────────────────────────────────
-# Label smoothing OFF (0.0) — keeping the original RTX 3090 setting.
-# Smoothing is confounded with TF schedule changes; its effect cannot be
-# isolated. Treat as a separate ablation after establishing the TF schedule baseline.
 _LOSS = {
     "label_smoothing":       0.0,
 }
@@ -140,13 +137,9 @@ def set_seed(seed: int = 42) -> None:
             fixed epoch-to-epoch.
       - cudnn.deterministic = False:  allows faster non-deterministic cuDNN
             algorithms; results remain statistically reproducible via the seed.
-      - allow_tf32 = True:  enables TF32 on Ampere+ Tensor Cores (RTX 3080,
-            RTX 3090, A100, etc.) for float32 matmul and cuDNN ops.
+      - allow_tf32 = True:  enables TF32 acceleration for float32 matmul and cuDNN ops.
 
     On non-CUDA hardware (MPS / CPU), full determinism is preserved.
-
-    Note: DataLoader worker seeds are controlled separately via
-    ``worker_init_fn`` in dataset.py when ``num_workers > 0``.
     """
     import random as _random
     import numpy as _np
@@ -159,7 +152,7 @@ def set_seed(seed: int = 42) -> None:
         # Speed over bit-exact reproducibility.
         _torch.backends.cudnn.deterministic = False
         _torch.backends.cudnn.benchmark = True
-        # TF32 Tensor Core acceleration (Ampere+ GPUs: RTX 3080, A100, etc.).
+        # TF32 acceleration.
         _torch.backends.cuda.matmul.allow_tf32 = True
         _torch.backends.cudnn.allow_tf32 = True
     else:

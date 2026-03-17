@@ -75,12 +75,6 @@ class Encoder(nn.Module):
     """
     Bidirectional 2-layer LSTM encoder.
 
-    Upgrade from old codebase: bidirectional=True.
-    For a context like "how do I mount a USB drive", the forward pass
-    sees 'mount' before 'USB drive'; the backward pass sees 'mount'
-    already knowing 'USB drive' follows. The combined representation
-    is richer for downstream attention alignment.
-
     Output shapes:
       encoder_outputs: [batch, src_len, hidden_dim*2]  — all timestep states
       (h_n, c_n):      each [num_layers*2, batch, hidden_dim]
@@ -113,7 +107,7 @@ class Encoder(nn.Module):
             hidden_size=hidden_dim,
             num_layers=num_layers,
             batch_first=True,
-            bidirectional=True,       # KEY UPGRADE: fwd + bwd pass
+            bidirectional=True,
             # PyTorch applies dropout between LSTM layers (not within a layer).
             # With num_layers=2 this fires once, between layer 1 and layer 2.
             dropout=dropout_lstm if num_layers > 1 else 0.0,
@@ -144,7 +138,7 @@ class Encoder(nn.Module):
 
         # Step 2: pack for efficient LSTM computation over variable-length seqs.
         # enforce_sorted=False lets PyTorch sort internally (no manual sort needed).
-        # .cpu() required by pack_padded_sequence — lengths must live on CPU (M4).
+        # .cpu() required by pack_padded_sequence — lengths must live on CPU.
         packed = pack_padded_sequence(
             embedded,
             src_lengths.cpu(),
@@ -559,8 +553,6 @@ class BaselineDecoder(nn.Module):
         self.out_dropout   = nn.Dropout(dropout_out)
 
         # F1: same input_size = embed_dim + enc_hidden_dim = 1324 as AttentionDecoder.
-        # Context is fixed (last encoder output), not attention-weighted, but the
-        # LSTM still receives it so parameter count remains identical.
         self.lstm = nn.LSTM(
             input_size=embed_dim + enc_hidden_dim,   # 1324  (F1: same as AttentionDecoder)
             hidden_size=dec_hidden_dim,
@@ -594,12 +586,6 @@ class BaselineDecoder(nn.Module):
         hidden, cell = h0, c0
 
         # Fixed context: last encoder output timestep [batch, enc_hidden_dim].
-        # Note: for a bidirectional encoder, position -1 contains the forward
-        # LSTM's full-sequence representation (✓) but the backward LSTM's
-        # single-step representation at the last token only (✗).  Mean pooling
-        # would be more balanced; however, a fixed-context baseline is by design
-        # simpler than the attention model, and the decoder's initial hidden
-        # state (from the bridge) already provides full bidirectional coverage.
         context = encoder_outputs[:, -1, :]   # [batch, enc_hidden_dim]
 
         logits_list = []
@@ -843,7 +829,7 @@ def build_model(
     if model_type == "attention":
         decoder = AttentionDecoder(
             **decoder_kwargs,
-            attn_dim=config.get("attn_dim", 256),  # thread from config; default matches original
+            attn_dim=config.get("attn_dim", 256),
         )
     else:
         decoder = BaselineDecoder(**decoder_kwargs)

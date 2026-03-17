@@ -4,22 +4,13 @@ phase1.py — Data pipeline for clean-from-scratch Ubuntu Dialogue Corpus proces
 Stages (run once, produces artifacts in ARTIFACT_DIR):
   Stage 1 — Load raw Ubuntu Dialogue Corpus CSV files into structured dialogues
   Stage 2 — Clean text + apply quality filters (parallel, chunked)
-  Stage 3 — Temporal split (train / val / test) by THREAD first-turn date (G6 fix)
+  Stage 3 — Temporal split (train / val / test) by THREAD first-turn date
   Stage 4 — Generate context-response pairs + response diversity filter
   Stage 4.5 — Domain-focused filtering: retain command-line OR question pairs
   Stage 5 — Train SentencePiece BPE model on raw training text (16k–20k vocab)
   Stage 6 — Encode all pairs to BPE token IDs + save vocab JSON
   Stage 7 — Train FastText 300d on BPE-tokenised training corpus
   Stage 8 — Build embedding matrix aligned to BPE vocab → .npy matrix
-
-Key decisions vs old phase1.py:
-  - SentencePiece BPE replaces word-level vocab (smaller softmax, zero OOV)
-  - FastText trained on BPE-tokenised text (▁-prefixed pieces), not raw words
-  - Response diversity filter caps repeat responses (reduces "averaging signal")
-  - Max context: 100 tokens / 8 turns (tighter = more specific)
-  - Max response: 40 tokens
-  - Target ~1.5M train pairs (quality > quantity vs prior 4.57M)
-  - Temporal split on THREAD (dialogue) first-turn date — no thread boundary leakage
 
 Quality filters:
   - filter_paste:           drop pasted terminal output blocks
@@ -100,7 +91,6 @@ PHASE1_CONFIG = {
     "max_train_pairs":               1_500_000,   # 0 = no cap
 
     # Temporal split boundaries — split by THREAD first-turn date.
-    # Calibrated to the Ubuntu Dialogue Corpus (2004-08 → 2012-11).
     # These dates give ~80% train / ~10% val / ~10% test.
     "train_cutoff_date":             "2012-04-27",
     "val_cutoff_date":               "2012-08-07",
@@ -117,7 +107,7 @@ PHASE1_CONFIG = {
 
     # FastText
     "fasttext_dim":                  300,
-    "fasttext_epochs":               10,    # 10 matches original; 5 was too few
+    "fasttext_epochs":               10,    # FastText training epochs
     "fasttext_min_count":            3,     # 3 filters hapax noise; 1 was too inclusive
     "fasttext_window":               5,     # explicit context window
     "fasttext_sg":                   1,     # skip-gram > CBOW for rare BPE pieces
@@ -737,8 +727,7 @@ def stage2_clean_and_filter(dialogues: List[Dict], cfg: dict) -> Tuple[List[Dict
     worker_args = [(chunk, cfg) for chunk in chunks]
 
     try:
-        # Use "spawn" context to avoid deadlocks on Windows (fork is unavailable;
-        # spawn starts a clean process without inheriting background threads) (QA2-M2).
+        # Use spawn context to avoid deadlocks on Windows.
         _mp_ctx = mp.get_context("spawn")
         with _mp_ctx.Pool(num_workers) as pool:
             for ci, (kept_chunk, reason_counts) in enumerate(
@@ -785,7 +774,7 @@ def stage2_clean_and_filter(dialogues: List[Dict], cfg: dict) -> Tuple[List[Dict
 def stage3_temporal_split(dialogues: List[Dict], cfg: dict) -> Tuple[List, List, List, Dict]:
     """Split dialogues by THREAD first-turn date → (train, val, test, stats).
 
-    Thread boundary safety (G6): each dialogue is assigned to exactly one
+    Thread boundary safety: each dialogue is assigned to exactly one
     split based on its FIRST turn's date. This prevents a single IRC thread
     from appearing in both train and test (data leakage).
 
@@ -924,12 +913,6 @@ def _generate_pairs_for_split(
             # Turn-coherence filter: discard pairs where no recent substantive
             # ctx turn shares content words with the response — catches
             # dialogue-window misalignments.
-            #
-            # Blind-spot fix: the last turn is often a short ack ("yes", "ok",
-            # "sure") which has < 5 content words.  We now walk BACKWARD through
-            # ctx turns to find the most recent one that is substantive (≥ 5
-            # content words) before running the overlap check.  This catches the
-            # pattern: [long question] __eot__ [cingular] __eot__ [yes] / [XP resp]
             if cfg.get("filter_incoherent_pairs", True):
                 ctx_turns = ctx_text.split(" __eot__ ")
                 ctx_content: set = set()
@@ -980,8 +963,6 @@ def stage4_generate_pairs(
     max_pairs = cfg.get("max_train_pairs", 0)
     if max_pairs > 0 and len(train_pairs) > max_pairs:
         # Random shuffle before cap to avoid temporal/alphabetical bias.
-        # Without this, we'd only see dialogues from the earliest part of
-        # the corpus — identical to the old phase1.py approach (ported back).
         random.shuffle(train_pairs)
         train_pairs = train_pairs[:max_pairs]
         print(f"    train capped to {max_pairs:,} (randomly sampled)")
@@ -1227,7 +1208,7 @@ def stage6_encode_pairs(
 ) -> Tuple[str, str, str, Dict, Dict]:
     """Encode all pairs to BPE token ID sequences and write JSONL files.
 
-    Context encoding (M3 — no <sos> on encoder):
+    Context encoding (no <sos> on encoder):
         ctx_ids = sp.encode(ctx_text)[-max_ctx_tokens:]   # keep LAST N tokens (most recent context)
 
     Response encoding:
@@ -1366,7 +1347,7 @@ def stage8_build_embedding_matrix(
     """Build numpy embedding matrix [vocab_size × embed_dim] from FastText.
 
     For each vocab piece (by integer ID order), the embedding is looked up
-    using the EXACT piece string including the ▁ word-initial prefix (M5 fix).
+    using the EXACT piece string including the ▁ word-initial prefix.
     FastText's subword mechanism handles any piece not directly in training.
     The <pad> row (index 0) is forced to all zeros.
 
@@ -1592,10 +1573,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
         print("✓ Stage 4.5 skipped (domain_filter=False)\n")
 
     # ── Stage 5 ──────────────────────────────────────────────────────────────
-    # Cache-invalidation guard for domain_filter: if domain_filter=True and
-    # stage 5 is already cached, the SPM model may have been trained on the
-    # unfiltered pairs from a previous run.  Warn the user to delete stage5+
-    # artifacts and rerun so SPM learns only the filtered vocabulary.
+    # Warn if SPM is cached but domain_filter is newly enabled.
     if cfg.get("domain_filter", False) and _stage_done(5, artifact_dir):
         print("⚠️  WARNING: domain_filter=True but Stage 5 (SPM) is already cached.")
         print("   The cached SPM model may have been trained on UNFILTERED pairs.")
