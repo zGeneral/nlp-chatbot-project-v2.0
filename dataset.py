@@ -15,7 +15,6 @@ Key design decisions:
 """
 
 import json
-import warnings
 from functools import partial
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -122,44 +121,20 @@ class UbuntuPairDataset(Dataset):
     """
 
     def __init__(self, jsonl_path: str, max_ctx_len: int, max_resp_len: int) -> None:
-        """
-        Args:
-            jsonl_path:   Path to stage6_{split}_ids.jsonl.
-            max_ctx_len:  Hard truncation length for context sequences.
-            max_resp_len: Hard truncation length for response sequences
-                          (should include <sos> and <eos>, i.e. max_resp_tokens + 2).
-        """
         self.pairs: List[Dict[str, List[int]]] = []
-        self.skipped_count: int = 0
 
         with open(jsonl_path, "r", encoding="utf-8") as fh:
-            for lineno, line in enumerate(fh, start=1):
+            for line in fh:
                 line = line.strip()
                 if not line:
                     continue
-                try:
-                    record = json.loads(line)
-                    # Keep the LAST max_ctx_len tokens (most recent dialogue turns),
-                    # matching the right-end truncation applied in phase1 stage6.
-                    raw_ctx = record["ctx"]
-                    ctx  = raw_ctx[-max_ctx_len:] if len(raw_ctx) > max_ctx_len else raw_ctx
-                    resp = record["resp"][:max_resp_len]
-                except (json.JSONDecodeError, KeyError):
-                    self.skipped_count += 1
-                    warnings.warn(f"Malformed line {lineno} in {jsonl_path} — skipping.")
-                    continue
-
-                if not ctx or not resp:
-                    self.skipped_count += 1
-                    warnings.warn(
-                        f"Empty ctx or resp after truncation at line {lineno} "
-                        f"in {jsonl_path} — skipping."
-                    )
-                    continue
-
+                record = json.loads(line)
+                raw_ctx = record["ctx"]
+                ctx  = raw_ctx[-max_ctx_len:] if len(raw_ctx) > max_ctx_len else raw_ctx
+                resp = record["resp"][:max_resp_len]
                 self.pairs.append({"ctx": ctx, "resp": resp})
 
-        print(f"Loaded {len(self.pairs)} pairs from {jsonl_path} (skipped {self.skipped_count})")
+        print(f"Loaded {len(self.pairs)} pairs from {jsonl_path}")
 
     def __len__(self) -> int:
         return len(self.pairs)

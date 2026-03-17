@@ -147,7 +147,7 @@ class Encoder(nn.Module):
         # .cpu() required by pack_padded_sequence — lengths must live on CPU (M4).
         packed = pack_padded_sequence(
             embedded,
-            src_lengths.cpu(),        # M4: explicit .cpu() to avoid device mismatch
+            src_lengths.cpu(),
             batch_first=True,
             enforce_sorted=False,
         )

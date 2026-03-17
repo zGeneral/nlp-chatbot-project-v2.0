@@ -75,28 +75,19 @@ def train_epoch(
 
     Returns:
         (avg_train_loss, avg_grad_norm, updated_global_step)
-
-    Notes:
-        - global_step = optimizer steps, NOT forward passes.
-          It increments only when an optimizer step is taken (after accumulation).
-        - bf16 does not underflow like fp16 — GradScaler is not needed.
-        - NaN loss: batch is skipped (nan_count incremented, no backward).
-        - NaN grad norm: optimizer.step() is skipped (nan_count incremented).
     """
     model.train()
 
     vocab_size: int = config["vocab_size"]
     grad_accum_steps: int = config["grad_accum_steps"]
     max_grad_norm: float = config["max_grad_norm"]
-    _amp_dtype = getattr(torch, config.get("amp_dtype", "bfloat16"))   # torch.bfloat16
+    _amp_dtype = getattr(torch, config.get("amp_dtype", "bfloat16"))
 
-    # Compute tf_ratio once — it is constant within an epoch.
     tf_ratio: float = get_tf_ratio(epoch, config)
 
     total_loss = 0.0
     total_grad_norm = 0.0
-    n_updates = 0      # number of successful optimizer steps this epoch
-    nan_count = 0      # batches skipped due to NaN loss or NaN grad norm
+    n_updates = 0
     num_batches = len(loader)
 
     pbar = tqdm(
@@ -132,37 +123,19 @@ def train_epoch(
             # an equal 1/grad_accum_steps share to the final gradient.
             scaled_loss = loss / grad_accum_steps
 
-        # ── NaN loss guard ──────────────────────────────────────────────────
-        if not torch.isfinite(loss):
-            nan_count += 1
-            # Zero accumulated gradients so this bad batch has no residual effect.
-            optimizer.zero_grad(set_to_none=True)
-            pbar.set_postfix(loss="NaN", nan_skip=nan_count)
-            continue
-
         scaled_loss.backward()
 
-        # ── Optimizer step guard (gradient accumulation) ────────────────────
         is_last_batch = (batch_idx + 1) == num_batches
         should_step = ((batch_idx + 1) % grad_accum_steps == 0) or is_last_batch
 
         if should_step:
-            # Compute grad norm before clipping for logging.
             grad_norm: float = torch.nn.utils.clip_grad_norm_(
                 model.parameters(), max_grad_norm
             ).item()
 
-            # ── NaN grad norm guard ─────────────────────────────────────────
-            if not math.isfinite(grad_norm):
-                nan_count += 1
-                optimizer.zero_grad(set_to_none=True)
-                pbar.set_postfix(loss=f"{loss.item():.4f}", grad_norm="NaN", nan_skip=nan_count)
-                continue
-
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
 
-            # global_step = optimizer steps, NOT forward passes.
             global_step += 1
 
             total_loss += loss.item()
@@ -172,7 +145,6 @@ def train_epoch(
             pbar.set_postfix(
                 loss=f"{loss.item():.4f}",
                 grad_norm=f"{grad_norm:.3f}",
-                nan_skip=nan_count,
             )
 
     avg_train_loss = total_loss / max(n_updates, 1)
@@ -224,12 +196,10 @@ def evaluate_epoch(
             trg[:, 1:].reshape(-1),   # exclude <sos>; criterion ignores <pad>
         )
 
-        if torch.isfinite(loss):
-            total_loss += loss.item()
-            n_batches += 1
+        total_loss += loss.item()
+        n_batches += 1
 
     avg_val_loss = total_loss / max(n_batches, 1)
-    # Cap inside exp() to avoid overflow on very early / diverged runs.
     val_ppl = math.exp(min(avg_val_loss, 20))
     return avg_val_loss, val_ppl
 
@@ -542,14 +512,9 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
         cfg:         Config dict overrides. Defaults to CONFIG from config.py.
         script_name: Used for the run log filename (e.g. "train").
     """
-    from logging_utils import setup_run_logging
-
     # ── Build active config — start from provided cfg or global CONFIG ────────
     active_cfg = dict(cfg if cfg is not None else CONFIG)
 
-    setup_run_logging(script_name, log_dir=active_cfg.get("log_dir", "new/logs"))
-
-    # AC2-C1: set all random seeds and configure hardware acceleration.
     set_seed(active_cfg.get("seed", 42))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

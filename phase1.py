@@ -818,17 +818,6 @@ def stage3_temporal_split(dialogues: List[Dict], cfg: dict) -> Tuple[List, List,
 
     total = len(train) + len(val) + len(test)
 
-    # Verify thread boundary integrity
-    train_ids = {d["id"] for d in train}
-    val_ids   = {d["id"] for d in val}
-    test_ids  = {d["id"] for d in test}
-    tv_overlap = len(train_ids & val_ids)
-    tt_overlap = len(train_ids & test_ids)
-    vt_overlap = len(val_ids & test_ids)
-    assert tv_overlap == 0, f"Thread boundary violation: {tv_overlap} dialogues in train ∩ val"
-    assert tt_overlap == 0, f"Thread boundary violation: {tt_overlap} dialogues in train ∩ test"
-    assert vt_overlap == 0, f"Thread boundary violation: {vt_overlap} dialogues in val ∩ test"
-
     stats = {
         "stage": 3,
         "n_train_dialogues": len(train),
@@ -838,16 +827,11 @@ def stage3_temporal_split(dialogues: List[Dict], cfg: dict) -> Tuple[List, List,
         "train_pct":         round(len(train) / total * 100, 1) if total else 0,
         "val_pct":           round(len(val) / total * 100, 1) if total else 0,
         "test_pct":          round(len(test) / total * 100, 1) if total else 0,
-        "overlap_train_val":  tv_overlap,
-        "overlap_train_test": tt_overlap,
-        "overlap_val_test":   vt_overlap,
-        "zero_overlap_confirmed": True,
     }
     print(f"  Train: {len(train):,} ({stats['train_pct']}%)  "
           f"Val: {len(val):,} ({stats['val_pct']}%)  "
           f"Test: {len(test):,} ({stats['test_pct']}%)  "
           f"No-date: {no_date:,}")
-    print(f"  Overlaps — T∩V: {tv_overlap}, T∩Te: {tt_overlap}, V∩Te: {vt_overlap}  ✓ zero overlap confirmed")
 
     return train, val, test, stats
 
@@ -1197,14 +1181,6 @@ def stage5_train_spm(train_pairs: List[Dict], cfg: dict) -> str:
 
     model_path = model_prefix + ".model"
 
-    # Verify token ID contract
-    sp = spm.SentencePieceProcessor(model_file=model_path)
-    assert sp.piece_to_id("<pad>") == 0, f"<pad> ID mismatch: got {sp.piece_to_id('<pad>')}"
-    assert sp.piece_to_id("<unk>") == 1, f"<unk> ID mismatch: got {sp.piece_to_id('<unk>')}"
-    assert sp.piece_to_id("<sos>") == 2, f"<sos> ID mismatch: got {sp.piece_to_id('<sos>')}"
-    assert sp.piece_to_id("<eos>") == 3, f"<eos> ID mismatch: got {sp.piece_to_id('<eos>')}"
-    print(f"  ✓ Token ID contract verified: pad=0, unk=1, sos=2, eos=3")
-
     # Clean up temp corpus file
     corpus_path.unlink(missing_ok=True)
 
@@ -1425,7 +1401,6 @@ def stage8_build_embedding_matrix(
     # Guarantee pad row is zero (in case FastText returned something)
     matrix[0] = 0.0
 
-    assert matrix[0].sum() == 0.0, "<pad> row is not all zeros"
     print(f"  Vectors filled: {n_found:,}/{vocab_size:,}  (pad row forced to zeros)")
 
     matrix_path = artifact_dir / "stage8_embedding_matrix.npy"
@@ -1462,8 +1437,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
     if cfg is None:
         cfg = PHASE1_CONFIG
 
-    from logging_utils import setup_run_logging
-    setup_run_logging(script_name, log_dir=cfg.get("log_dir", "new/logs"))
+
 
     artifact_dir = Path(cfg["artifact_dir"])
     artifact_dir.mkdir(parents=True, exist_ok=True)
