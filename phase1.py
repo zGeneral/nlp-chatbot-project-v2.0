@@ -7,7 +7,7 @@ Stages (run once, produces artifacts in ARTIFACT_DIR):
   Stage 3 — Temporal split (train / val / test) by THREAD first-turn date
   Stage 4 — Generate context-response pairs + response diversity filter
   Stage 4.5 — Domain-focused filtering: retain command-line OR question pairs
-  Stage 5 — Train SentencePiece BPE model on raw training text (16k–20k vocab)
+  Stage 5 — Train SentencePiece BPE model on raw training text (32k vocab)
   Stage 6 — Encode all pairs to BPE token IDs + save vocab JSON
   Stage 7 — Train FastText 300d on BPE-tokenised training corpus
   Stage 8 — Build embedding matrix aligned to BPE vocab → .npy matrix
@@ -48,7 +48,30 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import math
 import numpy as np
+
+# ── Container-aware CPU count ─────────────────────────────────────────────────
+def _container_cpu_count() -> int:
+    """Return CPUs assigned to this process (cgroup-aware, not host total)."""
+    try:                                          # cgroup v2 (OpenShift / Docker)
+        cpu_max = Path("/sys/fs/cgroup/cpu.max").read_text().strip()
+        if cpu_max != "max":
+            quota, period = cpu_max.split()
+            return max(1, int(quota) // int(period))
+    except (FileNotFoundError, ValueError):
+        pass
+    try:                                          # cgroup v1
+        quota  = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text())
+        period = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text())
+        if quota > 0:
+            return max(1, math.ceil(quota / period))
+    except (FileNotFoundError, ValueError):
+        pass
+    return max(1, os.cpu_count() or 1)           # bare-metal / Windows / macOS
+
+_CPU_COUNT = _container_cpu_count()
+_WORKERS   = max(1, _CPU_COUNT - 1)             # leave 1 CPU for OS scheduler
 
 log = logging.getLogger(__name__)
 
@@ -112,7 +135,7 @@ PHASE1_CONFIG = {
     "fasttext_min_count":            3,     # 3 filters hapax noise; 1 was too inclusive
     "fasttext_window":               5,     # explicit context window
     "fasttext_sg":                   1,     # skip-gram > CBOW for rare BPE pieces
-    "fasttext_workers":              7,     # 7 of 8 CPUs (1 reserved for OS)
+    "fasttext_workers":              _WORKERS,  # cpu_count - 1 (cgroup-aware)
 
     # Reproducibility
     "seed":                          42,    # FIX: G-5 — global random seed for all stages
@@ -120,7 +143,7 @@ PHASE1_CONFIG = {
     # Pipeline internals
     "artifact_dir":                  str(_NEW_DIR / "artifacts"),
     "log_dir":                       str(_NEW_DIR / "logs"),
-    "num_workers":                   7,  # static: 7 of 8 CPUs, 1 reserved for OS
+    "num_workers":                   _WORKERS,  # cpu_count - 1 (cgroup-aware)
     "chunk_size":                    50_000,
 
     # Mini-mode subsample — fraction of stage 1 dialogues to keep.
@@ -760,7 +783,7 @@ def stage2_clean_and_filter(dialogues: List[Dict], cfg: dict) -> Tuple[List[Dict
     """
     total_in = len(dialogues)
     chunk_size = cfg.get("chunk_size", 50_000)
-    num_workers = cfg.get("num_workers", 7)  # static: 7 of 8 CPUs, 1 reserved for OS
+    num_workers = cfg.get("num_workers", _WORKERS)
 
     chunks = [dialogues[i: i + chunk_size] for i in range(0, total_in, chunk_size)]
     print(f"  {total_in:,} dialogues → {len(chunks)} chunks (size {chunk_size:,}), {num_workers} workers")
@@ -1197,10 +1220,10 @@ def stage5_train_spm(train_pairs: List[Dict], cfg: dict) -> str:
         eos_id=3,    eos_piece="<eos>",
         user_defined_symbols=[
             # All __PLACEHOLDER__ tokens must be guaranteed single pieces.
-            # Without this, BPE splits them into fragments (e.g. __url__ →
-            # ['▁__','url','__']) which wastes token budget and makes the
-            # turn delimiter __eot__ noisy rather than a clean boundary signal.
-            "__url__", "__ip__", "__eot__", "__user__",
+            # The ▁ prefix (SentencePiece word-boundary marker) is included so
+            # each token encodes as ONE piece when preceded by a space in text,
+            # e.g. "check ▁__url__ here" → single token, not ['▁','__url__'].
+            "▁__url__", "▁__path__", "▁__ip__", "▁__eot__", "▁__user__",
         ],
     )
 
@@ -1214,13 +1237,14 @@ def stage5_train_spm(train_pairs: List[Dict], cfg: dict) -> str:
     assert _sp_check.piece_to_id("<pad>") == 0, "pad token ID mismatch"
     assert _sp_check.piece_to_id("<sos>") == 2, "sos token ID mismatch"
     assert _sp_check.piece_to_id("<eos>") == 3, "eos token ID mismatch"
-    for _ph in ["__url__", "__ip__", "__eot__", "__user__"]:
+    for _ph in ["▁__url__", "▁__path__", "▁__ip__", "▁__eot__", "▁__user__"]:
         _ph_id = _sp_check.piece_to_id(_ph)
         assert _ph_id != _sp_check.piece_to_id("<unk>"), \
-            f"Placeholder {_ph!r} fragmented to UNK — add it to user_defined_symbols"  # FIX: B-2
-        _ctx_ids = _sp_check.encode(f"test {_ph} text", out_type=int)
+            f"Placeholder {_ph!r} not in vocab — check user_defined_symbols"  # FIX: B-2
+        _plain = _ph.lstrip("▁")   # "▁__url__" → "__url__"  (real-world text form)
+        _ctx_ids = _sp_check.encode(f"test {_plain} text", out_type=int)
         assert _ph_id in _ctx_ids, \
-            f"Placeholder {_ph!r} (id={_ph_id}) not found as single piece in context encoding"  # FIX: B-2
+            f"Placeholder {_ph!r} (id={_ph_id}) still fragments in real text encoding"  # FIX: B-2
     print("  ✓ All placeholder tokens verified as single pieces")
 
     print(f"  SPM model saved → {model_path}")
@@ -1315,7 +1339,7 @@ def stage6_encode_pairs(
 
     sos_id = sp.piece_to_id("<sos>")      # == 2
     eos_id = sp.piece_to_id("<eos>")      # == 3
-    eot_id = sp.piece_to_id("__eot__")   # FIX: E-1 — needed for turn-boundary truncation
+    eot_id = sp.piece_to_id("▁__eot__")  # FIX: E-1 — needed for turn-boundary truncation
     vocab_size = sp.get_piece_size()
 
     max_ctx_tokens  = cfg["max_ctx_tokens"]
@@ -1529,7 +1553,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
     print("PHASE 1 — CONFIGURATION SUMMARY")
     print("=" * 60)
     print(f"  artifact_dir       : {cfg['artifact_dir']}")
-    print(f"  vocab_size         : {cfg.get('spm_vocab_size', cfg.get('vocab_size', 16000)):,}")
+    print(f"  vocab_size         : {cfg.get('spm_vocab_size', cfg.get('vocab_size', 32000)):,}")
     print(f"  max_train_pairs    : {cfg.get('max_train_pairs', 0):,}  (0 = no cap)")
     print(f"  min_ctx_tokens     : {cfg.get('min_ctx_tokens', 3)}")
     print(f"  min_resp_tokens    : {cfg.get('min_resp_tokens', 5)}")
@@ -1541,7 +1565,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
         print(f"  ⚡ Stage 4.5 ENABLED — ~73% of pairs retained (union A+B)")
     else:
         print(f"  filter_strategy    : disabled")
-    print(f"  spm_vocab_size     : {cfg.get('spm_vocab_size', 16000):,}")
+    print(f"  spm_vocab_size     : {cfg.get('spm_vocab_size', 32000):,}")
     print(f"  fasttext_dim       : {cfg.get('fasttext_dim', 300)}")
     print(f"  fasttext_epochs    : {cfg.get('fasttext_epochs', 10)}")
     print("=" * 60)

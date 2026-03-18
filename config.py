@@ -11,8 +11,49 @@ Implementation notes:
 """
 
 import json
+import math
 import os
 from pathlib import Path
+
+
+def _container_cpu_count() -> int:
+    """Return the number of CPUs actually assigned to this process.
+
+    Handles three environments correctly:
+      - Linux container (cgroup v2, e.g. OpenShift): reads /sys/fs/cgroup/cpu.max
+        so the host CPU count (e.g. 256) is never used — only the quota (e.g. 8).
+      - Linux container (cgroup v1): reads cpu.cfs_quota_us / cpu.cfs_period_us.
+      - Bare-metal Linux / Windows / macOS: falls back to os.cpu_count().
+
+    Returns at least 1.
+    """
+    # cgroup v2  (OpenShift / modern Docker)
+    try:
+        cpu_max = Path("/sys/fs/cgroup/cpu.max").read_text().strip()
+        if cpu_max != "max":
+            quota, period = cpu_max.split()
+            return max(1, int(quota) // int(period))
+    except (FileNotFoundError, ValueError):
+        pass
+
+    # cgroup v1
+    try:
+        quota  = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text())
+        period = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text())
+        if quota > 0:
+            return max(1, math.ceil(quota / period))
+    except (FileNotFoundError, ValueError):
+        pass
+
+    # Bare-metal / Windows / macOS
+    return max(1, os.cpu_count() or 1)
+
+
+# Number of CPUs assigned to this process (container-aware).
+_CPU_COUNT = _container_cpu_count()
+
+# Workers = all assigned CPUs minus 1 reserved for the OS scheduler.
+_WORKERS = max(1, _CPU_COUNT - 1)
 
 # ── Tokenization ──────────────────────────────────────────────────────────────
 _TOKENIZATION = {
@@ -84,8 +125,8 @@ _DATA = {
     "max_ctx_turns":         8,    # max dialogue turns retained in context
     "max_resp_tokens":       50,   # max response tokens (excl. <sos>/<eos>);
                                    # padded length = 52 (includes <sos> + <eos>)
-    "num_workers":           7,    # DataLoader workers — static: 7 of 8 CPUs, 1 reserved for OS
-    "fasttext_workers":      7,    # FastText training workers (phase1 only)
+    "num_workers":           _WORKERS,  # DataLoader workers (cpu_count - 1, cgroup-aware)
+    "fasttext_workers":      _WORKERS,  # FastText training workers (phase1 only)
 }
 
 # ── Path root (resolves to this file's directory, wherever you run from) ──────

@@ -8,8 +8,8 @@ Key design decisions:
   - All splits loaded fully into memory on __init__ (1.5M pairs ≈ 400 MB total,
     well within typical RAM budgets; avoids per-epoch file I/O overhead)
   - collate_fn returns a plain dict (not a tuple) for readability in train.py
-  - num_workers=4 on Windows RTX3080-12GB (set in config.py); pin_memory=True
-    for maximum CPU→GPU throughput
+  - num_workers is set dynamically in config.py (cpu_count - 1, cgroup-aware);
+    pin_memory=True for maximum CPU→GPU throughput
   - persistent_workers=True (when num_workers > 0) avoids re-spawning worker
     processes every epoch — important for the full 20-epoch training run
 """
