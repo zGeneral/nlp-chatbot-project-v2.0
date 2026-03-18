@@ -85,6 +85,7 @@ _DATA = {
     "max_resp_tokens":       40,   # max response tokens (excl. <sos>/<eos>);
                                    # padded length = 42 (includes <sos> + <eos>)
     "num_workers":           4,    # DataLoader workers (set to 0 to disable multiprocessing)
+    "fasttext_workers":      1,    # FIX: C-3 — set >1 for speed at cost of reproducibility
 }
 
 # ── Path root (resolves to this file's directory, wherever you run from) ──────

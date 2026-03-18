@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import csv
 import gc
+import hashlib
 import json
 import logging
 import multiprocessing as mp
@@ -111,7 +112,10 @@ PHASE1_CONFIG = {
     "fasttext_min_count":            3,     # 3 filters hapax noise; 1 was too inclusive
     "fasttext_window":               5,     # explicit context window
     "fasttext_sg":                   1,     # skip-gram > CBOW for rare BPE pieces
-    "fasttext_workers":              8,
+    "fasttext_workers":              1,     # FIX: C-3 — 1 for reproducibility; set >1 for speed
+
+    # Reproducibility
+    "seed":                          42,    # FIX: G-5 — global random seed for all stages
 
     # Pipeline internals
     "artifact_dir":                  str(_NEW_DIR / "artifacts"),
@@ -202,9 +206,24 @@ _BOT_RESPONSE_BLACKLIST = frozenset({
 
 # ── Compiled regex patterns ───────────────────────────────────────────────────
 
-_RE_URL      = re.compile(r"https?://\S+|www\.\S+|\b\S+\.(com|org|net|io|edu|gov)\S*", re.IGNORECASE)
-_RE_PATH     = re.compile(r"(?:/[a-zA-Z0-9._~-]+){2,}")
-_RE_IP       = re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?\b")  # IPv4 + optional port
+_RE_URL      = re.compile(                                                          # FIX: A-2
+    r"(?:[a-zA-Z][a-zA-Z0-9+\-.]*://\S+)"   # any scheme: ftp/irc/ssh/git/apt/...
+    r"|www\.\S+"                              # www. prefix
+    r"|\b(?:[a-z0-9\-]+\.)+(?:com|org|net|io|edu|gov|uk|de|fr|ca|au|ubuntu"
+    r"|debian|launchpad|github|gitlab|stackoverflow|pastebin|paste)\S*",
+    re.IGNORECASE
+)
+# FIX: A-3 — three separate patterns to handle Windows paths, tilde-home, and
+#             single-segment Unix paths (original required 2+ segments, missing /etc)
+_RE_PATH_WIN  = re.compile(r"[a-zA-Z]:[/\\](?:[^\s/\\]+[/\\]?)*", re.I)  # FIX: A-3
+_RE_PATH_HOME = re.compile(r"~(?:/[a-zA-Z0-9._~%-]+)+")                   # FIX: A-3
+_RE_PATH_UNIX = re.compile(r"(?:/[a-zA-Z0-9._~%-]+)+")                    # FIX: A-3
+_RE_IP       = re.compile(                                                  # FIX: A-4
+    r"(?<![a-zA-Z])\b"
+    r"(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}"
+    r"(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)"
+    r"(?::\d{1,5})?\b"
+)
 _RE_IRC_NICK = re.compile(r"^<[^>]+>\s*")
 _RE_NONALPHA = re.compile(r"[^a-z0-9 '\-_.]+")
 _RE_MULTI_SP = re.compile(r"\s{2,}")
@@ -366,9 +385,29 @@ def _load_pickle(path: Path) -> object:
         return pickle.load(f)
 
 
-def _stage_done(stage: int, artifact_dir: Path) -> bool:
-    """Return True if all artifacts for stage already exist."""
-    return all((artifact_dir / f).exists() for f in STAGE_ARTIFACTS[stage])
+def _config_hash(cfg: dict) -> str:                                             # FIX: D-1
+    """MD5 of the config dict — changes when any pipeline parameter changes."""
+    return hashlib.md5(
+        json.dumps(cfg, sort_keys=True, default=str).encode()
+    ).hexdigest()[:12]
+
+
+def _write_config_stamp(stage: int, artifact_dir: Path, cfg: dict) -> None:    # FIX: D-1
+    stamp_path = artifact_dir / f".stage{stage}_config_hash"
+    stamp_path.write_text(_config_hash(cfg))
+
+
+def _stage_done(stage: int, artifact_dir: Path, cfg: dict = None) -> bool:     # FIX: D-1
+    """Return True if all artifacts exist AND config hash matches (if cfg given)."""
+    files_exist = all((artifact_dir / f).exists() for f in STAGE_ARTIFACTS[stage])
+    if not files_exist:
+        return False
+    if cfg is None:
+        return True  # backwards compat if caller doesn't pass cfg
+    stamp_path = artifact_dir / f".stage{stage}_config_hash"
+    if not stamp_path.exists():
+        return False  # no stamp → treat as stale
+    return stamp_path.read_text().strip() == _config_hash(cfg)
 
 
 # ── Text cleaning helpers ─────────────────────────────────────────────────────
@@ -382,8 +421,10 @@ def _clean_text(text: str) -> str:
     """
     if not text:
         return ""
+    text = _RE_PATH_WIN.sub(" __path__ ", text)   # FIX: A-3 — Windows paths before URL (C:\...)
+    text = _RE_PATH_HOME.sub(" __path__ ", text)  # FIX: A-3 — tilde-home paths (~/.bashrc)
+    text = _RE_PATH_UNIX.sub(" __path__ ", text)  # FIX: A-3 — Unix absolute paths (/etc)
     text = _RE_URL.sub(" __url__ ", text)
-    text = _RE_PATH.sub(" __path__ ", text)
     text = _RE_IP.sub(" __ip__ ", text)      # mask IPv4 addresses (e.g. 173.224.120.70)
     text = _RE_IRC_NICK.sub("", text)
     text = text.lower()
@@ -963,8 +1004,9 @@ def stage4_generate_pairs(
 
     max_pairs = cfg.get("max_train_pairs", 0)
     if max_pairs > 0 and len(train_pairs) > max_pairs:
-        # Random shuffle before cap to avoid temporal/alphabetical bias.
-        random.shuffle(train_pairs)
+        # FIX: G-5 — use seeded rng instead of bare random.shuffle
+        _rng = random.Random(cfg.get("seed", 42))
+        _rng.shuffle(train_pairs)
         train_pairs = train_pairs[:max_pairs]
         print(f"    train capped to {max_pairs:,} (randomly sampled)")
 
@@ -1166,11 +1208,51 @@ def stage5_train_spm(train_pairs: List[Dict], cfg: dict) -> str:
     # Clean up temp corpus file
     corpus_path.unlink(missing_ok=True)
 
+    # FIX: B-2 — verify all user-defined placeholders are single-piece (not fragmented by BPE)
+    _sp_check = spm.SentencePieceProcessor(model_file=model_path)
+    assert _sp_check.piece_to_id("<pad>") == 0, "pad token ID mismatch"
+    assert _sp_check.piece_to_id("<sos>") == 2, "sos token ID mismatch"
+    assert _sp_check.piece_to_id("<eos>") == 3, "eos token ID mismatch"
+    for _ph in ["__url__", "__path__", "__ip__", "__cmd__", "__number__", "__eot__"]:
+        _ph_id = _sp_check.piece_to_id(_ph)
+        assert _ph_id != _sp_check.piece_to_id("<unk>"), \
+            f"Placeholder {_ph!r} fragmented to UNK — add it to user_defined_symbols"  # FIX: B-2
+        _ctx_ids = _sp_check.encode(f"test {_ph} text", out_type=int)
+        assert _ph_id in _ctx_ids, \
+            f"Placeholder {_ph!r} (id={_ph_id}) not found as single piece in context encoding"  # FIX: B-2
+    print("  ✓ All placeholder tokens verified as single pieces")
+
     print(f"  SPM model saved → {model_path}")
     return model_path
 
 
 # ── Stage 6 ───────────────────────────────────────────────────────────────────
+
+def _truncate_to_turn_boundary(ids: list, max_len: int, eot_id: int) -> list:
+    """Truncate from the left, keeping the most recent context, but always
+    starting at a turn boundary (just after an __eot__ token).
+    Never returns a sequence that begins mid-turn."""                             # FIX: E-1
+    if len(ids) <= max_len:
+        return ids
+    trimmed = ids[-max_len:]
+    for i, tok in enumerate(trimmed):
+        if tok == eot_id:
+            return trimmed[i + 1:]   # start after the first eot boundary
+    # No eot found in window — context is a single very long turn; keep as-is
+    return trimmed
+
+
+def _deduplicate_pairs(pairs: list) -> tuple:
+    """Remove exact (ctx, resp) duplicates. Returns (deduped_list, n_removed)."""  # FIX: E-3
+    seen   = set()
+    result = []
+    for p in pairs:
+        key = (tuple(p["ctx"]), tuple(p["resp"]))
+        if key not in seen:
+            seen.add(key)
+            result.append(p)
+    return result, len(pairs) - len(result)
+
 
 def _encode_split(
     pairs: List[Dict],
@@ -1180,24 +1262,30 @@ def _encode_split(
     max_resp_tokens: int,
     sos_id: int,
     eos_id: int,
+    eot_id: int,                                                                 # FIX: E-1
 ) -> int:
     """Encode one split to JSONL and return number of lines written."""
     tmp = out_path.with_suffix(".tmp")
-    written = 0
+    # FIX: E-3 — collect encoded pairs in memory for deduplication
+    encoded_pairs = []
+    for pair in pairs:
+        ctx_ids_full = sp.encode(pair["ctx"], out_type=int)
+        # FIX: E-1 — truncate at turn boundary instead of raw tail-slice
+        ctx_ids = _truncate_to_turn_boundary(ctx_ids_full, max_ctx_tokens, eot_id)
+        resp_ids = (
+            [sos_id]
+            + sp.encode(pair["resp"], out_type=int)[:max_resp_tokens]
+            + [eos_id]
+        )
+        encoded_pairs.append({"ctx": ctx_ids, "resp": resp_ids})
+    # FIX: E-3 — deduplicate before writing
+    encoded_pairs, n_dupes = _deduplicate_pairs(encoded_pairs)
+    print(f"  Deduplication: removed {n_dupes:,} exact (ctx, resp) duplicates")
     with open(tmp, "w", encoding="utf-8") as f:
-        for pair in pairs:
-            ctx_ids_full = sp.encode(pair["ctx"], out_type=int)
-            # Keep the LAST max_ctx_tokens BPE tokens (most recent dialogue turns)
-            ctx_ids = ctx_ids_full[-max_ctx_tokens:]
-            resp_ids = (
-                [sos_id]
-                + sp.encode(pair["resp"], out_type=int)[:max_resp_tokens]
-                + [eos_id]
-            )
-            f.write(json.dumps({"ctx": ctx_ids, "resp": resp_ids}) + "\n")
-            written += 1
+        for ep in encoded_pairs:
+            f.write(json.dumps(ep) + "\n")
     os.replace(tmp, out_path)
-    return written
+    return len(encoded_pairs)
 
 
 def stage6_encode_pairs(
@@ -1224,8 +1312,9 @@ def stage6_encode_pairs(
 
     sp = spm_module.SentencePieceProcessor(model_file=spm_model_path)
 
-    sos_id = sp.piece_to_id("<sos>")   # == 2
-    eos_id = sp.piece_to_id("<eos>")   # == 3
+    sos_id = sp.piece_to_id("<sos>")      # == 2
+    eos_id = sp.piece_to_id("<eos>")      # == 3
+    eot_id = sp.piece_to_id("__eot__")   # FIX: E-1 — needed for turn-boundary truncation
     vocab_size = sp.get_piece_size()
 
     max_ctx_tokens  = cfg["max_ctx_tokens"]
@@ -1236,13 +1325,13 @@ def stage6_encode_pairs(
     test_path  = artifact_dir / "stage6_test_ids.jsonl"
 
     print(f"  Encoding train ({len(train_pairs):,} pairs) …")
-    n_train = _encode_split(train_pairs, sp, train_path, max_ctx_tokens, max_resp_tokens, sos_id, eos_id)
+    n_train = _encode_split(train_pairs, sp, train_path, max_ctx_tokens, max_resp_tokens, sos_id, eos_id, eot_id)
 
     print(f"  Encoding val ({len(val_pairs):,} pairs) …")
-    n_val = _encode_split(val_pairs, sp, val_path, max_ctx_tokens, max_resp_tokens, sos_id, eos_id)
+    n_val = _encode_split(val_pairs, sp, val_path, max_ctx_tokens, max_resp_tokens, sos_id, eos_id, eot_id)
 
     print(f"  Encoding test ({len(test_pairs):,} pairs) …")
-    n_test = _encode_split(test_pairs, sp, test_path, max_ctx_tokens, max_resp_tokens, sos_id, eos_id)
+    n_test = _encode_split(test_pairs, sp, test_path, max_ctx_tokens, max_resp_tokens, sos_id, eos_id, eot_id)
 
     # Build vocab dict {piece_str: id}
     vocab: Dict[str, int] = {sp.id_to_piece(i): i for i in range(vocab_size)}
@@ -1320,6 +1409,10 @@ def stage7_train_fasttext(spm_model_path: str, all_pairs: List[Dict], cfg: dict)
 
     print(f"  Training FastText  dim={cfg['fasttext_dim']}  epochs={cfg['fasttext_epochs']}  sg={cfg.get('fasttext_sg', 1)} …")
     sentences = LineSentence(str(corpus_path))
+    _emb_workers = cfg.get("fasttext_workers", 1)   # FIX: C-3
+    _emb_seed    = cfg.get("seed", 42)               # FIX: C-3
+    # FIX: C-3 — NOTE: Gensim is only fully reproducible with workers=1.
+    # Set fasttext_workers=1 in config for exact reproducibility.
     model = FastText(
         sentences,
         vector_size=cfg.get("fasttext_dim", 300),
@@ -1327,7 +1420,8 @@ def stage7_train_fasttext(spm_model_path: str, all_pairs: List[Dict], cfg: dict)
         min_count=cfg.get("fasttext_min_count", 3),
         window=cfg.get("fasttext_window", 5),
         sg=cfg.get("fasttext_sg", 1),
-        workers=cfg.get("fasttext_workers", 8),
+        workers=_emb_workers,
+        seed=_emb_seed,
     )
 
     model_path = str(artifact_dir / "stage7_fasttext.model")
@@ -1396,6 +1490,7 @@ def stage8_build_embedding_matrix(
         "vocab_size":  vocab_size,
         "embed_dim":   embed_dim,
         "n_filled":    n_found,
+        "n_random":    vocab_size - 1 - n_found,   # FIX: C-1 — OOV/special tokens (excl. pad)
         "pad_row_sum": float(matrix[0].sum()),
         "matrix_shape": list(matrix.shape),
     }
@@ -1453,7 +1548,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
 
     # ── Stage 1 ──────────────────────────────────────────────────────────────
     s1_path = artifact_dir / "stage1_dialogues.pkl"
-    if _stage_done(1, artifact_dir):
+    if _stage_done(1, artifact_dir, cfg):                                        # FIX: D-1
         print("✓ Stage 1 already complete — loading dialogues …")
         dialogues = _load_pickle(s1_path)
     else:
@@ -1463,6 +1558,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
         t0 = time.time()
         dialogues = stage1_load_corpus(cfg)
         _save_pickle(dialogues, s1_path)
+        _write_config_stamp(1, artifact_dir, cfg)                                # FIX: D-1
         print(f"Stage 1 done ({_elapsed(t0)})  {len(dialogues):,} dialogues\n")
 
     # Optional subsample — used by phase1_mini.py to work on 10% of dialogues.
@@ -1471,17 +1567,27 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
     subsample_frac = float(cfg.get("stage1_subsample_frac", 1.0))
     if subsample_frac < 1.0:
         n_keep = max(1, int(len(dialogues) * subsample_frac))
-        rng = random.Random(42)
+        rng = random.Random(cfg.get("seed", 42))                                 # FIX: G-5
         dialogues = rng.sample(dialogues, n_keep)
         print(f"  [mini] Subsampled to {len(dialogues):,} dialogues "
-              f"({subsample_frac:.0%} of corpus, seed=42)\n")
+              f"({subsample_frac:.0%} of corpus, seed={cfg.get('seed', 42)})\n")  # FIX: G-5
 
     # ── Stage 2 ──────────────────────────────────────────────────────────────
     s2_path       = artifact_dir / "stage2_clean_dialogues.pkl"
     s2_stats_path = artifact_dir / "stage2_stats.json"
-    if _stage_done(2, artifact_dir):
+    if _stage_done(2, artifact_dir, cfg):                                        # FIX: D-1
         print("✓ Stage 2 already complete — loading clean dialogues …")
         clean_dialogues = _load_pickle(s2_path)
+        # FIX: H-1 — reprint filter breakdown on cache hit
+        _s2_stats_path = artifact_dir / "stage2_stats.json"
+        if _s2_stats_path.exists():
+            import json as _json
+            _s2 = _json.loads(_s2_stats_path.read_text())
+            _disc = _s2.get("discard_reasons", {})
+            if _disc:
+                print("  Filter breakdown (from prior run):")
+                for _reason, _count in sorted(_disc.items(), key=lambda x: -x[1]):
+                    print(f"    {_reason:<35} {_count:>10,}")
     else:
         print("=" * 60)
         print("STAGE 2 — Clean and filter")
@@ -1491,6 +1597,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
         s2_stats["elapsed"] = _elapsed(t0)
         _save_pickle(clean_dialogues, s2_path)
         _save_json(s2_stats, s2_stats_path)
+        _write_config_stamp(2, artifact_dir, cfg)                                # FIX: D-1
         del dialogues
         gc.collect()
         print(f"Stage 2 done ({_elapsed(t0)})  {len(clean_dialogues):,} dialogues kept\n")
@@ -1500,7 +1607,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
     s3_val_path   = artifact_dir / "stage3_val.pkl"
     s3_test_path  = artifact_dir / "stage3_test.pkl"
     s3_stats_path = artifact_dir / "stage3_stats.json"
-    if _stage_done(3, artifact_dir):
+    if _stage_done(3, artifact_dir, cfg):                                        # FIX: D-1
         print("✓ Stage 3 already complete — loading splits …")
         train_dlg = _load_pickle(s3_train_path)
         val_dlg   = _load_pickle(s3_val_path)
@@ -1516,6 +1623,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
         _save_pickle(val_dlg,   s3_val_path)
         _save_pickle(test_dlg,  s3_test_path)
         _save_json(s3_stats, s3_stats_path)
+        _write_config_stamp(3, artifact_dir, cfg)                                # FIX: D-1
         del clean_dialogues
         gc.collect()
         print(f"Stage 3 done ({_elapsed(t0)})\n")
@@ -1525,7 +1633,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
     s4_val_path   = artifact_dir / "stage4_val_pairs.json"
     s4_test_path  = artifact_dir / "stage4_test_pairs.json"
     s4_stats_path = artifact_dir / "stage4_stats.json"
-    if _stage_done(4, artifact_dir):
+    if _stage_done(4, artifact_dir, cfg):                                        # FIX: D-1
         print("✓ Stage 4 already complete — loading pairs …")
         train_pairs = _load_json(s4_train_path)
         val_pairs   = _load_json(s4_val_path)
@@ -1543,6 +1651,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
         _save_json(val_pairs,   s4_val_path)
         _save_json(test_pairs,  s4_test_path)
         _save_json(s4_stats,    s4_stats_path)
+        _write_config_stamp(4, artifact_dir, cfg)                                # FIX: D-1
         del train_dlg, val_dlg, test_dlg
         gc.collect()
         print(f"Stage 4 done ({_elapsed(t0)})  train={len(train_pairs):,}  val={len(val_pairs):,}  test={len(test_pairs):,}\n")
@@ -1575,13 +1684,13 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
 
     # ── Stage 5 ──────────────────────────────────────────────────────────────
     # Warn if SPM is cached but domain_filter is newly enabled.
-    if cfg.get("domain_filter", False) and _stage_done(5, artifact_dir):
+    if cfg.get("domain_filter", False) and _stage_done(5, artifact_dir, cfg):   # FIX: D-1
         print("⚠️  WARNING: domain_filter=True but Stage 5 (SPM) is already cached.")
         print("   The cached SPM model may have been trained on UNFILTERED pairs.")
         print("   To fix: delete artifacts/stage5_spm.* and stages 6-8, then rerun.")
         print()
     s5_model_path = artifact_dir / "stage5_spm.model"
-    if _stage_done(5, artifact_dir):
+    if _stage_done(5, artifact_dir, cfg):                                        # FIX: D-1
         print("✓ Stage 5 already complete — SPM model exists")
         spm_model_path = str(s5_model_path)
     else:
@@ -1590,11 +1699,12 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
         print("=" * 60)
         t0 = time.time()
         spm_model_path = stage5_train_spm(train_pairs, cfg)
+        _write_config_stamp(5, artifact_dir, cfg)                                # FIX: D-1
         print(f"Stage 5 done ({_elapsed(t0)})\n")
 
     # ── Stage 6 ──────────────────────────────────────────────────────────────
     s6_vocab_path = artifact_dir / "stage6_vocab.json"
-    if _stage_done(6, artifact_dir):
+    if _stage_done(6, artifact_dir, cfg):                                        # FIX: D-1
         print("✓ Stage 6 already complete — loading vocab …")
         vocab = _load_json(s6_vocab_path)
     else:
@@ -1607,11 +1717,12 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
         )
         del train_pairs, val_pairs, test_pairs
         gc.collect()
+        _write_config_stamp(6, artifact_dir, cfg)                                # FIX: D-1
         print(f"Stage 6 done ({_elapsed(t0)})\n")
 
     # ── Stage 7 ──────────────────────────────────────────────────────────────
     s7_model_path = artifact_dir / "stage7_fasttext.model"
-    if _stage_done(7, artifact_dir):
+    if _stage_done(7, artifact_dir, cfg):                                        # FIX: D-1
         print("✓ Stage 7 already complete — FastText model exists")
         ft_model_path = str(s7_model_path)
     else:
@@ -1632,11 +1743,21 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
         ft_model_path = stage7_train_fasttext(spm_model_path, ft_pairs, cfg)
         del ft_pairs
         gc.collect()
+        _write_config_stamp(7, artifact_dir, cfg)                                # FIX: D-1
         print(f"Stage 7 done ({_elapsed(t0)})\n")
 
     # ── Stage 8 ──────────────────────────────────────────────────────────────
-    if _stage_done(8, artifact_dir):
+    if _stage_done(8, artifact_dir, cfg):                                        # FIX: D-1
         print("✓ Stage 8 already complete — embedding matrix exists")
+        # FIX: C-1 — reprint coverage figures on cache hit
+        _s8_stats_path = artifact_dir / "stage8_stats.json"
+        if _s8_stats_path.exists():
+            import json as _json
+            _s8 = _json.loads(_s8_stats_path.read_text())
+            print(f"  Embedding coverage : {_s8.get('n_filled', '?')} / "
+                  f"{_s8.get('vocab_size', '?')} tokens have trained vectors")
+            print(f"  Random-init tokens : {_s8.get('n_random', '?')} "
+                  f"(OOV / special tokens)")
     else:
         print("=" * 60)
         print("STAGE 8 — Build embedding matrix")
@@ -1646,6 +1767,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
         cfg_with_spm = dict(cfg)
         cfg_with_spm["spm_model_path"] = spm_model_path
         matrix_path, s8_stats = stage8_build_embedding_matrix(vocab, ft_model_path, cfg_with_spm)
+        _write_config_stamp(8, artifact_dir, cfg)                                # FIX: D-1
         print(f"Stage 8 done ({_elapsed(t0)})  matrix shape: {s8_stats['matrix_shape']}\n")
 
     print("=" * 60)
