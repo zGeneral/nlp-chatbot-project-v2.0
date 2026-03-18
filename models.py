@@ -352,8 +352,8 @@ class AttentionDecoder(nn.Module):
     the per-direction dimension (512).  Initial context is zeros(batch, 1024).
 
     Projection bottleneck (dec_hidden_dim + enc_hidden_dim → projection_dim → vocab_size):
-      Without: 2048 × 16000 = 32.8M params in a single layer
-      With:    2048 × 512 + 512 × 16000 = 9.2M params  (72% reduction)
+      Without: 2048 × 32000 = 65.5M params in a single layer
+      With:    2048 × 512 + 512 × 32000 = 17.4M params  (73% reduction)
     """
 
     def __init__(
@@ -817,7 +817,7 @@ def build_model(
         embedding=embedding,                       # shared with encoder (weight tying)
         enc_hidden_dim=enc_hidden_total,           # 1024
         dec_hidden_dim=config["dec_hidden_dim"],   # 1024
-        vocab_size=config["vocab_size"],           # 16000
+        vocab_size=config["vocab_size"],           # 32000
         projection_dim=config["projection_dim"],   # 512
         num_layers=config["num_layers"],
         pad_idx=config["pad_idx"],
