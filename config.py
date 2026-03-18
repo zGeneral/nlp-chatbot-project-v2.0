@@ -84,7 +84,7 @@ _DATA = {
     "max_ctx_turns":         8,    # max dialogue turns retained in context
     "max_resp_tokens":       40,   # max response tokens (excl. <sos>/<eos>);
                                    # padded length = 42 (includes <sos> + <eos>)
-    "num_workers":           4,    # DataLoader workers (set to 0 to disable multiprocessing)
+    "num_workers":           7,    # DataLoader workers — static: 7 of 8 CPUs, 1 reserved for OS
     "fasttext_workers":      1,    # FIX: C-3 — set >1 for speed at cost of reproducibility
 }
 

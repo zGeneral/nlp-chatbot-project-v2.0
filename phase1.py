@@ -120,7 +120,7 @@ PHASE1_CONFIG = {
     # Pipeline internals
     "artifact_dir":                  str(_NEW_DIR / "artifacts"),
     "log_dir":                       str(_NEW_DIR / "logs"),
-    "num_workers":                   max(1, mp.cpu_count() - 2),
+    "num_workers":                   7,  # static: 7 of 8 CPUs, 1 reserved for OS
     "chunk_size":                    50_000,
 
     # Mini-mode subsample — fraction of stage 1 dialogues to keep.
@@ -758,7 +758,7 @@ def stage2_clean_and_filter(dialogues: List[Dict], cfg: dict) -> Tuple[List[Dict
     """
     total_in = len(dialogues)
     chunk_size = cfg.get("chunk_size", 50_000)
-    num_workers = cfg.get("num_workers", max(1, mp.cpu_count() - 2))
+    num_workers = cfg.get("num_workers", 7)  # static: 7 of 8 CPUs, 1 reserved for OS
 
     chunks = [dialogues[i: i + chunk_size] for i in range(0, total_in, chunk_size)]
     print(f"  {total_in:,} dialogues → {len(chunks)} chunks (size {chunk_size:,}), {num_workers} workers")
