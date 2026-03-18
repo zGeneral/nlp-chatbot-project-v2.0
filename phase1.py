@@ -1529,7 +1529,7 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
     print("PHASE 1 — CONFIGURATION SUMMARY")
     print("=" * 60)
     print(f"  artifact_dir       : {cfg['artifact_dir']}")
-    print(f"  vocab_size         : {cfg.get('vocab_size', 16000):,}")
+    print(f"  vocab_size         : {cfg.get('spm_vocab_size', cfg.get('vocab_size', 16000)):,}")
     print(f"  max_train_pairs    : {cfg.get('max_train_pairs', 0):,}  (0 = no cap)")
     print(f"  min_ctx_tokens     : {cfg.get('min_ctx_tokens', 3)}")
     print(f"  min_resp_tokens    : {cfg.get('min_resp_tokens', 5)}")
