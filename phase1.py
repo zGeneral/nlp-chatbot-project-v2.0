@@ -84,9 +84,9 @@ PHASE1_CONFIG = {
     "max_response_occurrences":      500,
 
     # Pair generation dimensions
-    "max_ctx_tokens":                100,
+    "max_ctx_tokens":                256,
     "max_ctx_turns":                 8,
-    "max_resp_tokens":               40,
+    "max_resp_tokens":               50,
     "min_resp_tokens":               5,    # raised from 3 — eliminates 3-4 token fragments
     "min_ctx_tokens":                3,    # discard pairs where full ctx < 3 words (degenerate: "yes", "__url__", "hello")
     "max_train_pairs":               1_500_000,   # 0 = no cap
@@ -97,7 +97,7 @@ PHASE1_CONFIG = {
     "val_cutoff_date":               "2012-08-07",
 
     # SentencePiece BPE — special token IDs guaranteed via explicit params
-    "spm_vocab_size":                16000,
+    "spm_vocab_size":                32000,
     "spm_model_type":                "bpe",
     "spm_character_coverage":        0.9999,
     "spm_input_sentence_size":       2_000_000,   # cap SPM training lines (avoids "too many" warning)
@@ -112,7 +112,7 @@ PHASE1_CONFIG = {
     "fasttext_min_count":            3,     # 3 filters hapax noise; 1 was too inclusive
     "fasttext_window":               5,     # explicit context window
     "fasttext_sg":                   1,     # skip-gram > CBOW for rare BPE pieces
-    "fasttext_workers":              1,     # FIX: C-3 — 1 for reproducibility; set >1 for speed
+    "fasttext_workers":              7,     # 7 of 8 CPUs (1 reserved for OS)
 
     # Reproducibility
     "seed":                          42,    # FIX: G-5 — global random seed for all stages
@@ -206,18 +206,18 @@ _BOT_RESPONSE_BLACKLIST = frozenset({
 
 # ── Compiled regex patterns ───────────────────────────────────────────────────
 
-_RE_URL      = re.compile(                                                          # FIX: A-2
+_RE_URL      = re.compile(
     r"(?:[a-zA-Z][a-zA-Z0-9+\-.]*://\S+)"   # any scheme: ftp/irc/ssh/git/apt/...
     r"|www\.\S+"                              # www. prefix
     r"|\b(?:[a-z0-9\-]+\.)+(?:com|org|net|io|edu|gov|uk|de|fr|ca|au|ubuntu"
     r"|debian|launchpad|github|gitlab|stackoverflow|pastebin|paste)\S*",
     re.IGNORECASE
 )
-# FIX: A-3 — three separate patterns to handle Windows paths, tilde-home, and
-#             single-segment Unix paths (original required 2+ segments, missing /etc)
-_RE_PATH_WIN  = re.compile(r"[a-zA-Z]:[/\\](?:[^\s/\\]+[/\\]?)*", re.I)  # FIX: A-3
-_RE_PATH_HOME = re.compile(r"~(?:/[a-zA-Z0-9._~%-]+)+")                   # FIX: A-3
-_RE_PATH_UNIX = re.compile(r"(?:/[a-zA-Z0-9._~%-]+)+")                    # FIX: A-3
+# Windows drive paths: negative lookbehind prevents matching URL scheme letters
+# (e.g. the "p" in "http://") as a drive letter.
+_RE_PATH_WIN  = re.compile(r"(?<![a-zA-Z])[a-zA-Z]:[/\\](?:[^\s/\\]+[/\\]?)*", re.I)
+_RE_PATH_HOME = re.compile(r"~(?:/[a-zA-Z0-9._~%-]+)+")
+_RE_PATH_UNIX = re.compile(r"(?:/[a-zA-Z0-9._~%-]+)+")
 _RE_IP       = re.compile(                                                  # FIX: A-4
     r"(?<![a-zA-Z])\b"
     r"(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}"
@@ -229,7 +229,7 @@ _RE_NONALPHA = re.compile(r"[^a-z0-9 '\-_.]+")
 _RE_MULTI_SP = re.compile(r"\s{2,}")
 _RE_ACTION   = re.compile(r"^\*\s*\S+\s+")   # IRC /me emotes: "* nick does thing"
 _RE_PLACEHOLDER_ONLY = re.compile(
-    r"^(__url__|__path__|__ip__|__cmd__|__number__|__user__|\s)+$"
+    r"^(__url__|__ip__|__user__|\s)+$"
 )
 # Matches known IRC bot names (including possessive 's) in message text.
 # Stage 2 drops bot *turns*, but humans still reference bot names (e.g.
@@ -415,17 +415,19 @@ def _stage_done(stage: int, artifact_dir: Path, cfg: dict = None) -> bool:     #
 def _clean_text(text: str) -> str:
     """Clean a single utterance string.
 
-    Steps: URL→__url__, path→__path__, IP→__ip__ normalisation; IRC nick
-    prefix (<nick>) and addressee pattern (nick: / nick,) stripped; lowercase;
-    contraction expansion; non-alphanumeric removal; whitespace collapse.
+    Steps: URL→__url__ (first, to prevent path patterns fragmenting URLs),
+    IP→__ip__ normalisation; IRC nick prefix (<nick>) and addressee pattern
+    (nick: / nick,) stripped; lowercase; contraction expansion;
+    non-alphanumeric removal; whitespace collapse.
+    Paths and commands are kept as-is so the model learns real Linux vocabulary.
     """
     if not text:
         return ""
-    text = _RE_PATH_WIN.sub(" __path__ ", text)   # FIX: A-3 — Windows paths before URL (C:\...)
-    text = _RE_PATH_HOME.sub(" __path__ ", text)  # FIX: A-3 — tilde-home paths (~/.bashrc)
-    text = _RE_PATH_UNIX.sub(" __path__ ", text)  # FIX: A-3 — Unix absolute paths (/etc)
-    text = _RE_URL.sub(" __url__ ", text)
-    text = _RE_IP.sub(" __ip__ ", text)      # mask IPv4 addresses (e.g. 173.224.120.70)
+    text = _RE_URL.sub(" __url__ ", text)         # URL first — prevents PATH_WIN fragmentation
+    text = _RE_PATH_WIN.sub(" __path__ ", text)   # Windows paths  (C:\...)
+    text = _RE_PATH_HOME.sub(" __path__ ", text)  # tilde-home paths (~/.bashrc)
+    text = _RE_PATH_UNIX.sub(" __path__ ", text)  # Unix absolute paths (/etc/fstab)
+    text = _RE_IP.sub(" __ip__ ", text)           # mask IPv4 addresses
     text = _RE_IRC_NICK.sub("", text)
     text = text.lower()
     # Strip IRC addressee pattern at message start: "nick: message" or "nick, message"
@@ -478,7 +480,7 @@ def _is_english_response(text: str) -> bool:
     trip this check. Responses with fewer than 3 alpha chars are passed
     through — other filters handle trivially short responses.
     """
-    clean = re.sub(r"__url__|__path__|__cmd__|__number__", " ", text)
+    clean = re.sub(r"__url__|__ip__", " ", text)
     alpha_chars = [c for c in clean if c.isalpha()]
     if len(alpha_chars) < 3:
         return True
@@ -1036,8 +1038,8 @@ def stage4_generate_pairs(
 # ── Stage 4.5 — Domain-focused filtering ─────────────────────────────────────
 
 def _is_command_related(text: str) -> bool:
-    """Return True if text contains a Linux command or a __path__ token."""
-    return bool(_DOMAIN_CMD_RE.search(text)) or "__path__" in text
+    """Return True if text contains a Linux command pattern."""
+    return bool(_DOMAIN_CMD_RE.search(text))
 
 
 def _last_substantive_turn(ctx: str, max_lookback: int = 3) -> str:
@@ -1198,8 +1200,7 @@ def stage5_train_spm(train_pairs: List[Dict], cfg: dict) -> str:
             # Without this, BPE splits them into fragments (e.g. __url__ →
             # ['▁__','url','__']) which wastes token budget and makes the
             # turn delimiter __eot__ noisy rather than a clean boundary signal.
-            "__url__", "__path__", "__ip__", "__cmd__", "__number__",
-            "__eot__", "__user__",
+            "__url__", "__ip__", "__eot__", "__user__",
         ],
     )
 
@@ -1213,7 +1214,7 @@ def stage5_train_spm(train_pairs: List[Dict], cfg: dict) -> str:
     assert _sp_check.piece_to_id("<pad>") == 0, "pad token ID mismatch"
     assert _sp_check.piece_to_id("<sos>") == 2, "sos token ID mismatch"
     assert _sp_check.piece_to_id("<eos>") == 3, "eos token ID mismatch"
-    for _ph in ["__url__", "__path__", "__ip__", "__cmd__", "__number__", "__eot__"]:
+    for _ph in ["__url__", "__ip__", "__eot__", "__user__"]:
         _ph_id = _sp_check.piece_to_id(_ph)
         assert _ph_id != _sp_check.piece_to_id("<unk>"), \
             f"Placeholder {_ph!r} fragmented to UNK — add it to user_defined_symbols"  # FIX: B-2
@@ -1409,10 +1410,10 @@ def stage7_train_fasttext(spm_model_path: str, all_pairs: List[Dict], cfg: dict)
 
     print(f"  Training FastText  dim={cfg['fasttext_dim']}  epochs={cfg['fasttext_epochs']}  sg={cfg.get('fasttext_sg', 1)} …")
     sentences = LineSentence(str(corpus_path))
-    _emb_workers = cfg.get("fasttext_workers", 1)   # FIX: C-3
-    _emb_seed    = cfg.get("seed", 42)               # FIX: C-3
-    # FIX: C-3 — NOTE: Gensim is only fully reproducible with workers=1.
-    # Set fasttext_workers=1 in config for exact reproducibility.
+    _emb_workers = cfg.get("fasttext_workers", 7)
+    _emb_seed    = cfg.get("seed", 42)
+    # NOTE: Gensim is only fully reproducible with workers=1.
+    # Set fasttext_workers=1 in config if exact reproducibility is required.
     model = FastText(
         sentences,
         vector_size=cfg.get("fasttext_dim", 300),
