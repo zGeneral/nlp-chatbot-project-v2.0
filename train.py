@@ -665,10 +665,14 @@ def main(cfg: dict = None, script_name: str = "train") -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # ── Startup banner ────────────────────────────────────────────────────────
+    from config import _GPU_PROFILES, _gpu_profile
     eff_batch = active_cfg["batch_size"] * active_cfg["grad_accum_steps"]
     gpu_name  = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A"
+    _matched  = next((k for k in _GPU_PROFILES if k in gpu_name), None)
+    _profile_label = f"profile={_matched!r}" if _matched else "profile=default (no match)"
     print("=" * 70)
     print(f"  Device  : {device}  ({gpu_name})")
+    print(f"  Profile : {_profile_label}")
     print(f"  Batch   : {active_cfg['batch_size']} × {active_cfg['grad_accum_steps']} accum "
           f"= {eff_batch} effective")
     print(f"  Epochs  : {active_cfg['num_epochs']}  |  LR : {active_cfg['learning_rate']:.1e}")

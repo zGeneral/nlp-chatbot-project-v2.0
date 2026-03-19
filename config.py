@@ -8,6 +8,10 @@ Implementation notes:
   and per-script override via CONFIG.update({...}).
 - All paths are computed relative to this file's location so the
   code works correctly regardless of which directory you run from.
+- GPU profiles (_GPU_PROFILES) are auto-detected at import time and
+  merged over the base config, so the same code runs optimally on both
+  the A100-80GB container and the RTX 3080 Windows machine without
+  maintaining separate branches.
 """
 
 import json
@@ -87,16 +91,21 @@ _ARCHITECTURE = {
 }
 
 # ── Training ──────────────────────────────────────────────────────────────────
+# Safe defaults — work on any GPU with ≥8 GB VRAM.
+# GPU-specific overrides (batch_size, grad_accum_steps, n_gen_samples) are
+# applied automatically by _select_gpu_profile() below.
 _TRAINING = {
-    "learning_rate":         3e-4,    # peak LR (reached after warmup; cosine decays from here)
+    "learning_rate":         3e-4,    # peak LR (AdamW; no warmup — Adam handles cold start)
     "weight_decay":          1e-5,    # L2 regularisation
     "max_grad_norm":         1.0,     # gradient clipping
-    "batch_size":            1024,    # A100-80GB: 2× throughput; Adam's adaptive v_t absorbs variance reduction
-    "grad_accum_steps":      1,       # no accumulation needed
+    "batch_size":            256,     # safe default; overridden by GPU profile
+    "grad_accum_steps":      2,       # effective batch = 512 on default; overridden by GPU profile
     "num_epochs":            20,      # total training epochs
     "amp_dtype":             "bfloat16",  # automatic mixed precision dtype
     "patience":              4,       # early stopping patience (0 = disabled); monitoring
                                       # begins only after Phase 1 ends (see get_tf_ratio)
+    "n_gen_samples":         512,     # val samples for BLEU/F1 eval; overridden by GPU profile
+    "lr_min":                1e-5,    # ReduceLROnPlateau minimum LR floor
 }
 
 # ── Teacher-Forcing Schedule ───────────────────────────────────────────────────
@@ -138,7 +147,57 @@ _DATA = {
     "fasttext_workers":      _WORKERS,  # FastText training workers (phase1 only)
 }
 
-# ── Path root (resolves to this file's directory, wherever you run from) ──────
+# ── GPU Profiles ───────────────────────────────────────────────────────────────
+# Matched against torch.cuda.get_device_name(0) at import time.
+# Keys in a matched profile are merged OVER the base config, so only the
+# hardware-specific settings need to be listed here.
+#
+# Adding a new GPU: add an entry whose key is a unique substring of the GPU
+# name reported by nvidia-smi / torch.cuda.get_device_name().
+_GPU_PROFILES: dict = {
+    # ── NVIDIA A100 (80 GB SXM4 / PCIe) — OpenShift container ────────────────
+    # 40 GB VRAM at batch=1024 (BF16 activations).  No accumulation needed.
+    "A100": {
+        "batch_size":       1024,
+        "grad_accum_steps": 1,      # one step = one optimizer update
+        "n_gen_samples":    1024,   # one full batch for BLEU/F1
+    },
+    # ── NVIDIA RTX 3080 (10/12 GB GDDR6X) — Windows development machine ──────
+    # Conservative batch keeps VRAM under 10 GB.  Accumulation restores
+    # the effective batch to 512 so training dynamics match the A100 run.
+    "3080": {
+        "batch_size":       256,
+        "grad_accum_steps": 2,      # effective batch = 512
+        "n_gen_samples":    512,    # half-batch to keep BLEU/F1 fast on RTX
+    },
+}
+
+
+def _select_gpu_profile() -> dict:
+    """Detect the installed GPU and return the matching profile overrides.
+
+    Tries CUDA first; returns {} (no override) if CUDA is unavailable,
+    if torch is not installed, or if no profile key matches the GPU name.
+    The detection is intentionally silent on import — the startup banner
+    in train.py prints which profile was applied.
+    """
+    try:
+        import torch as _torch
+        if not _torch.cuda.is_available():
+            return {}
+        gpu_name = _torch.cuda.get_device_name(0)
+        for key, profile in _GPU_PROFILES.items():
+            if key in gpu_name:
+                return profile
+    except Exception:
+        pass
+    return {}
+
+
+# ── Resolved GPU profile (applied at CONFIG assembly time) ────────────────────
+_gpu_profile: dict = _select_gpu_profile()
+
+
 _NEW_DIR = Path(__file__).resolve().parent   # .../nlp-chatbot-project-v2.0/
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -157,6 +216,7 @@ _REPRODUCIBILITY = {
 }
 
 # ── Master CONFIG ─────────────────────────────────────────────────────────────
+# _gpu_profile is merged LAST so its keys take precedence over all base dicts.
 CONFIG: dict = {
     **_TOKENIZATION,
     **_ARCHITECTURE,
@@ -167,6 +227,7 @@ CONFIG: dict = {
     **_DATA,
     **_PATHS,
     **_REPRODUCIBILITY,
+    **_gpu_profile,   # GPU-specific overrides applied last
 }
 
 
