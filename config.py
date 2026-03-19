@@ -91,8 +91,8 @@ _TRAINING = {
     "learning_rate":         3e-4,    # peak LR (reached after warmup; cosine decays from here)
     "weight_decay":          1e-5,    # L2 regularisation
     "max_grad_norm":         1.0,     # gradient clipping
-    "batch_size":            256,     # per-step batch size
-    "grad_accum_steps":      2,       # effective batch = batch_size × grad_accum_steps = 512
+    "batch_size":            512,     # per-step batch size (same effective 512 as before, accum removed)
+    "grad_accum_steps":      1,       # no accumulation — eliminates Python loop overhead (~10–15% speedup)
     "num_epochs":            20,      # total training epochs
     "amp_dtype":             "bfloat16",  # automatic mixed precision dtype
     "patience":              4,       # early stopping patience (0 = disabled); monitoring
