@@ -187,7 +187,7 @@ def finetune(
         ignore_index=config["pad_idx"],
         label_smoothing=config.get("label_smoothing", 0.0),
     )
-    _amp_dtype = getattr(torch, config.get("amp_dtype", "bfloat16"))
+    # (amp_dtype handled internally by train_epoch/evaluate_* via config)
 
     # ── History ───────────────────────────────────────────────────────────────
     history: Dict[str, List] = {
@@ -203,6 +203,11 @@ def finetune(
     _no_improve   = 0
     global_step   = 0
 
+    # Build a ft_config that overrides the TF schedule so train_epoch picks up
+    # the right tf_ratio via get_tf_ratio(epoch, config).  We monkey-patch by
+    # storing the per-epoch ratio directly into the schedule each iteration.
+    ft_config = dict(config)
+
     print(f"  {'Ep':>3}  {'TF':>5}  {'Val(TF1)':>9}  {'PPL':>8}  "
           f"{'BLEU':>6}  {'F1':>6}  {'Len':>5}  {'LR':>9}  {'Ent':>6}  Time")
     print("  " + "─" * 80)
@@ -212,31 +217,38 @@ def finetune(
 
         tf_ratio = _ft_tf_ratio(epoch, ft_tf_start, ft_tf_floor, ft_anneal_epochs)
 
+        # Inject tf_ratio into ft_config so train_epoch reads it correctly.
+        # We override the schedule to a constant for this epoch: set phase1_end
+        # to a value that puts every epoch in Phase 3, and set phase3_tf to our
+        # computed ratio.
+        ft_config["tf_schedule"] = dict(config.get("tf_schedule", {}))
+        ft_config["tf_schedule"]["phase1_end"]   = 0   # never Phase 1
+        ft_config["tf_schedule"]["phase2_end"]   = 0   # never Phase 2
+        ft_config["tf_schedule"]["phase3_tf"]    = tf_ratio
+
         # ── Train ────────────────────────────────────────────────────────────
         train_loss, avg_gnorm, global_step = train_epoch(
             model=model,
             loader=train_loader,
             optimizer=optimizer,
             criterion=criterion,
+            config=ft_config,
             device=device,
-            clip=config.get("grad_clip", 1.0),
-            tf_ratio=tf_ratio,
+            epoch=epoch,
             global_step=global_step,
-            amp_dtype=_amp_dtype,
         )
 
         # ── Validation (TF=1.0) ───────────────────────────────────────────────
-        val_loss = evaluate_loss(
+        val_loss, val_ppl = evaluate_loss(
             model=model, loader=val_loader, criterion=criterion,
-            device=device, amp_dtype=_amp_dtype,
+            device=device,
         )
-        val_ppl = math.exp(min(val_loss, 20))
 
         # ── Generation metrics (TF=0.0, 1024 samples) ─────────────────────────
         n_gen = config.get("n_gen_samples", 1024)
         gen_loss, avg_pred_len, bleu, token_f1, avg_active_tokens = evaluate_generation(
-            model=model, loader=val_loader, criterion=criterion,
-            device=device, n_samples=n_gen, sp_model=_sp, amp_dtype=_amp_dtype,
+            model=model, loader=val_loader,
+            device=device, sp_model=_sp, n_gen_samples=n_gen,
         )
 
         # ── Attention entropy ─────────────────────────────────────────────────
@@ -244,14 +256,14 @@ def finetune(
         if model_type == "attention":
             attn_entropy = compute_attention_entropy(
                 model=model, loader=val_loader,
-                device=device, n_samples=256, amp_dtype=_amp_dtype,
+                device=device, n_samples=256,
             )
 
         # ── Decoded samples ───────────────────────────────────────────────────
         log_decoded_samples(
             model=model, loader=val_loader, device=device,
-            sp_model=_sp, n_samples=10, label=f"{model_type} ft-ep{epoch}",
-            amp_dtype=_amp_dtype,
+            sp_model=_sp, n_samples=10,
+            model_type=model_type, epoch=epoch,
         )
 
         lr = optimizer.param_groups[0]["lr"]
