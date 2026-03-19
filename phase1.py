@@ -1058,7 +1058,8 @@ def stage4_generate_pairs(
     """
     print("  Generating train pairs …")
     train_pairs, train_disc = _generate_pairs_for_split(train_dialogues, cfg, apply_diversity_filter=True)
-    print(f"    train raw: {len(train_pairs):,}  discards: {train_disc}")
+    _train_pre_cap = len(train_pairs)  # save before cap for accurate attrition table
+    print(f"    train raw: {_train_pre_cap:,}  discards: {train_disc}")
 
     max_pairs = cfg.get("max_train_pairs", 0)
     if max_pairs > 0 and len(train_pairs) > max_pairs:
@@ -1090,9 +1091,10 @@ def stage4_generate_pairs(
     }
 
     # Filter attrition table — resolves H-1 from nb01 review.
-    # Print once here so the pipeline log permanently records how many pairs
-    # each filter removed. Run-to-run comparison makes filter tuning visible.
-    _total_raw = sum(train_disc.values()) + len(train_pairs)
+    # Uses pre-cap count so percentages reflect filter impact, not the cap.
+    _total_raw = sum(train_disc.values()) + _train_pre_cap
+    _kept_label = (f"{_train_pre_cap:,} → capped to {len(train_pairs):,}"
+                   if len(train_pairs) < _train_pre_cap else f"{_train_pre_cap:,}")
     print("\n  Stage 4 filter attrition (train):")
     print(f"  {'Filter':<30s}  {'Removed':>10s}  {'% of raw':>9s}")
     print(f"  {'─'*30}  {'─'*10}  {'─'*9}")
@@ -1100,7 +1102,9 @@ def stage4_generate_pairs(
         pct = 100.0 * count / max(_total_raw, 1)
         print(f"  {name:<30s}  {count:>10,}  {pct:>8.1f}%")
     print(f"  {'─'*30}  {'─'*10}  {'─'*9}")
-    print(f"  {'KEPT':<30s}  {len(train_pairs):>10,}  {100.*len(train_pairs)/max(_total_raw,1):>8.1f}%")
+    print(f"  {'KEPT (pre-cap)':<30s}  {_train_pre_cap:>10,}  {100.*_train_pre_cap/max(_total_raw,1):>8.1f}%")
+    if len(train_pairs) < _train_pre_cap:
+        print(f"  {'KEPT (after cap)':<30s}  {len(train_pairs):>10,}  {100.*len(train_pairs)/max(_total_raw,1):>8.1f}%")
     print(f"  {'RAW TOTAL':<30s}  {_total_raw:>10,}")
     print()
 
