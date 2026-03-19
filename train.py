@@ -79,6 +79,7 @@ def train_epoch(
 
     total_loss = 0.0
     total_grad_norm = 0.0
+    _accum_loss = 0.0   # accumulates every micro-batch loss for correct window average
     n_updates = 0
     num_batches = len(loader)
 
@@ -116,6 +117,11 @@ def train_epoch(
 
         scaled_loss.backward()
 
+        # Accumulate every micro-batch loss BEFORE the should_step gate so the
+        # reported train loss is the true average across the full accum window,
+        # not just the last micro-batch (which was the previous bug).
+        _accum_loss += loss.item()
+
         is_last_batch = (batch_idx + 1) == num_batches
         should_step = ((batch_idx + 1) % grad_accum_steps == 0) or is_last_batch
 
@@ -129,7 +135,12 @@ def train_epoch(
 
             global_step += 1
 
-            total_loss += loss.item()
+            # Divide by the number of micro-batches in this window.
+            # The last window may be smaller if num_batches % grad_accum_steps != 0.
+            _window = (batch_idx % grad_accum_steps) + 1
+            total_loss += _accum_loss / _window
+            _accum_loss = 0.0
+
             total_grad_norm += grad_norm
             n_updates += 1
 
@@ -143,7 +154,6 @@ def train_epoch(
     return avg_train_loss, avg_grad_norm, global_step
 
 
-@torch.inference_mode()
 def evaluate_loss(
     model: nn.Module,
     loader,
@@ -209,7 +219,7 @@ def evaluate_generation(
     Runs on the first n_gen_samples validation items only (one batch at
     batch_size=1024) to keep per-epoch overhead low (~5s on A100).
 
-    Three metrics are computed:
+    Five metrics are computed:
 
     gen_loss:
         Cross-entropy over *active* positions only — positions up to and
@@ -233,9 +243,9 @@ def evaluate_generation(
         (gen_loss, avg_pred_len, bleu, token_f1, avg_active_tokens)
     """
     model.eval()
-    total_gen_loss = 0.0
+    total_ce_sum = 0.0        # sum of per-token CE over all active positions (for true global avg)
     total_pred_len = 0.0
-    total_active_tokens = 0
+    total_active_tokens = 0   # total active (pre-EOS) token count across all batches
     n_batches = 0
     n_seen = 0
     hypotheses: List[str] = []
@@ -265,6 +275,10 @@ def evaluate_generation(
             eos_cumsum = preds.eq(eos_idx).long().cumsum(dim=1)          # [B, T]
             active = (eos_cumsum <= 1) & trg[:, 1:].ne(pad_idx)         # [B, T]
 
+            # Intentionally uses raw F.cross_entropy (no label_smoothing) so
+            # gen_loss measures sharp per-token CE — what the model actually
+            # predicts, not the smoothed training objective.  This makes it a
+            # cleaner proxy for generation quality than the smoothed criterion.
             per_tok = F.cross_entropy(
                 output.reshape(-1, vocab_size),
                 trg[:, 1:].reshape(-1),
@@ -272,7 +286,10 @@ def evaluate_generation(
                 reduction="none",
             )  # [B*T]
             n_active = active.reshape(-1).sum().clamp(min=1)
-            total_gen_loss += (per_tok[active.reshape(-1)].sum() / n_active).item()
+            # Accumulate raw CE sum (not per-batch average) so the final
+            # avg_gen_loss is a true global average over all active tokens,
+            # not an average-of-batch-averages that over-weights small batches.
+            total_ce_sum += per_tok[active.reshape(-1)].sum().item()
             total_active_tokens += n_active.item()
 
             # ── PredLen (collapse detector) ───────────────────────────────────
@@ -303,9 +320,11 @@ def evaluate_generation(
             n_batches += 1
             n_seen += preds.size(0)
 
-    avg_gen_loss = total_gen_loss / max(n_batches, 1)
+    # True global average: total CE sum / total active tokens (not avg-of-avgs)
+    avg_gen_loss = total_ce_sum / max(total_active_tokens, 1)
     avg_pred_len = total_pred_len / max(n_batches, 1)
-    avg_active_tokens = total_active_tokens / max(n_batches, 1)  # normalization denominator for gen_loss
+    # Store total_active_tokens (not per-batch avg) so gen_loss is reconstructable from history
+    avg_active_tokens = total_active_tokens / max(n_batches, 1)  # per-batch avg for display
     bleu = _sacrebleu.corpus_bleu(hypotheses, [references]).score if hypotheses else 0.0
 
     # ── Corpus Token F1 (unigram word overlap) ────────────────────────────────
@@ -457,11 +476,23 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         ckpt = torch.load(resume_path, map_location=device, weights_only=False)
         model.load_state_dict(ckpt["model_state_dict"])
         optimizer.load_state_dict(ckpt["optimizer_state"])
-        best_val_loss = ckpt.get("val_loss", float("inf"))
         start_epoch = ckpt.get("epoch", 0) + 1
         global_step = ckpt.get("global_step", 0)
         if "history" in ckpt:
             history = ckpt["history"]
+
+        # Issue #4 fix: derive best_val_loss from history minimum, not from the
+        # checkpoint's val_loss field.  Resuming from last.pt at epoch N gives
+        # val_loss=epoch_N_loss, which may be worse than the true best (saved in
+        # best.pt at an earlier epoch).  Using min(history) is always correct.
+        if history.get("val_loss"):
+            best_val_loss = min(history["val_loss"])
+        else:
+            best_val_loss = ckpt.get("val_loss", float("inf"))
+
+        # Issue #6 fix: restore _no_improve from checkpoint so patience budget
+        # survives a crash/resume cycle instead of silently resetting to 0.
+        _no_improve = ckpt.get("no_improve", 0)
 
         # ReduceLROnPlateau: load optimizer state to restore the exact LR at
         # the time the checkpoint was saved. The scheduler is NOT loaded from
@@ -571,6 +602,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
                 "val_ppl": val_ppl,
                 "train_loss": train_loss,
                 "tf_ratio": tf_ratio,
+                "no_improve": _no_improve,
                 "config": dict(config),
                 "history": history,
             }
@@ -606,6 +638,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
                         "model_state_dict": model.state_dict(),
                         "optimizer_state": optimizer.state_dict(),
                         "val_loss": val_loss,
+                        "no_improve": _no_improve,
                         "config": dict(config),
                         "history": history,
                     }
@@ -622,6 +655,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             "model_state_dict": model.state_dict(),
             "optimizer_state": optimizer.state_dict(),
             "val_loss": val_loss,
+            "no_improve": _no_improve,
             "config": dict(config),
             "history": history,
         }
