@@ -102,8 +102,10 @@ _TRAINING = {
     "grad_accum_steps":      2,       # effective batch = 512 on default; overridden by GPU profile
     "num_epochs":            20,      # total training epochs
     "amp_dtype":             "bfloat16",  # automatic mixed precision dtype
-    "patience":              4,       # early stopping patience (0 = disabled); monitoring
+    "patience":              6,       # early stopping patience (0 = disabled); monitoring
                                       # begins only after Phase 1 ends (see get_tf_ratio)
+                                      # run2: raised 4→6 so LR scheduler (patience=2) fires
+                                      # and has 4 epochs to work before early stop re-evaluates
     "n_gen_samples":         512,     # val samples for BLEU/F1 eval; overridden by GPU profile
     "lr_min":                1e-5,    # ReduceLROnPlateau minimum LR floor
 }
@@ -112,7 +114,10 @@ _TRAINING = {
 # 3-phase schedule: full TF → linear annealing → floor.
 _TF_SCHEDULE = {
     "tf_schedule": {
-        "phase1_end":       5,    # last epoch (inclusive) at TF = phase1_tf
+        "phase1_end":       3,    # last epoch (inclusive) at TF = phase1_tf
+                                  # run2: reduced 5→3; epoch 3 already captures ~82% of
+                                  # Phase 1 improvement; saves 2 A100 epochs (~8 min)
+                                  # and gives Phase 2 two extra epochs for LR annealing
         "phase1_tf":        1.0,  # TF ratio for epochs 1 → phase1_end
         "phase2_end":       12,   # last epoch (inclusive) of linear annealing
         "phase2_start_tf":  0.9,  # TF at the first epoch of phase 2 (phase1_end + 1)
@@ -124,10 +129,10 @@ _TF_SCHEDULE = {
 # ── LR Scheduler ──────────────────────────────────────────────────────────────
 # ReduceLROnPlateau: halves LR when val loss stalls; scheduler.step(val_loss) once per epoch.
 _LR_SCHEDULER = {
-    "lr_scheduler_patience": 4,    # ReduceLROnPlateau patience (epochs)
-                                    # 4 (not 3) — val set is only ~187 batches so
-                                    # val loss is noisier; extra epoch avoids
-                                    # premature LR halving on a single noisy reading
+    "lr_scheduler_patience": 2,    # ReduceLROnPlateau patience (epochs)
+                                    # run2: reduced 4→2 so LR halves after 2 bad val epochs;
+                                    # run1 both ES and LR had patience=4, raced to a tie —
+                                    # LR fired at same epoch as early stop, never helped.
     "lr_scheduler_factor":   0.5,  # LR multiplicative decay factor on plateau
 }
 

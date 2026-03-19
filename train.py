@@ -6,9 +6,8 @@ Both models are trained with identical hyperparameters — the only difference
 is the attention mechanism — providing a controlled apples-to-apples ablation.
 
   TEACHER FORCING STRATEGY (3-phase schedule):
-    Epochs  1– 5:  TF = 1.0        — Foundation: burn in basic token representations.
-                                      Loss drops from ~5.5 → ~4.25 here.
-    Epochs  6–12:  TF 0.9 → 0.5    — Annealing: linear decay; decoder begins
+    Epochs  1– 3:  TF = 1.0        — Foundation: burn in basic token representations.
+    Epochs  4–12:  TF 0.9 → 0.5    — Annealing: linear decay; decoder begins
                                       practicing self-feeding while representations
                                       are still being refined.
     Epochs 13–20:  TF = 0.5        — Maturation: hold at floor; both models
@@ -18,14 +17,21 @@ is the attention mechanism — providing a controlled apples-to-apples ablation.
   recover from compounding errors; TF < 0.5 causes collapse. Floor is kept
   identical for a fair comparison.
 
+  Run 2 optimisations vs run 1:
+    - phase1_end: 5 → 3  (epoch 3 captures ~82% of Phase 1 gain)
+    - lr_scheduler_patience: 4 → 2  (LR halves before early stop fires)
+    - patience (early stop): 4 → 6  (gives 4 epochs at reduced LR to work)
+    - Decoded sample logging: 10 samples printed per epoch for qualitative QA
+    - Attention entropy logging: mean attention entropy per epoch (attention only)
+
   LR STRATEGY: ReduceLROnPlateau.
     factor=0.5, patience=3, min_lr=1e-5.
     scheduler.step(val_loss) is called once PER EPOCH after validation.
-    The Phase 2 reset (best_val_loss=inf at epoch 6) prevents plateau from
+    The Phase 2 reset (best_val_loss=inf at epoch 4) prevents plateau from
     prematurely halving LR during the TF=1.0 exposure-bias phase.
 
   EARLY STOPPING:
-    Patience = 4 epochs, monitored only from Phase 2 onward (epoch > 5).
+    Patience = 6 epochs, monitored only from Phase 2 onward (epoch > 3).
 
   GRADIENT CLIPPING:
     clip = 1.0. Allows valid large gradients during TF=1.0 phase.
@@ -37,7 +43,7 @@ import math
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -350,6 +356,144 @@ def evaluate_generation(
     return avg_gen_loss, avg_pred_len, bleu, token_f1, avg_active_tokens
 
 
+def log_decoded_samples(
+    model: nn.Module,
+    loader,
+    device: torch.device,
+    sp_model,
+    model_type: str,
+    epoch: int,
+    n_samples: int = 10,
+    pad_idx: int = 0,
+    eos_idx: int = 3,
+    amp_dtype: torch.dtype = torch.bfloat16,
+) -> None:
+    """
+    Decode n_samples validation items and print (source, reference, hypothesis)
+    triples for qualitative monitoring — catches generic-response collapse, hallucination,
+    and copy failures that metrics alone can miss.
+    """
+    if sp_model is None:
+        return
+
+    model.eval()
+    _device_type = device.type if hasattr(device, "type") else str(device).split(":")[0]
+    _special = {pad_idx, 0, 1, 2, eos_idx}
+    samples_collected = 0
+    rows = []
+
+    with torch.no_grad():
+        for batch in loader:
+            if samples_collected >= n_samples:
+                break
+            src = batch["src"].to(device, non_blocking=True)
+            src_lengths = batch["src_lengths"].to(device, non_blocking=True)
+            trg = batch["trg"].to(device, non_blocking=True)
+
+            with torch.amp.autocast(device_type=_device_type, dtype=amp_dtype,
+                                    enabled=_device_type == "cuda"):
+                output = model(src, src_lengths, trg, teacher_forcing_ratio=0.0)
+
+            preds = output.argmax(-1)  # [B, T]
+
+            for i in range(min(preds.size(0), n_samples - samples_collected)):
+                src_ids  = src[i].cpu().tolist()
+                hyp_ids  = preds[i].cpu().tolist()
+                ref_ids  = trg[i, 1:].cpu().tolist()
+
+                # Strip to first EOS then remove specials.
+                def _clean(ids):
+                    try: ids = ids[:ids.index(eos_idx)]
+                    except ValueError: pass
+                    return [t for t in ids if t not in _special]
+
+                src_str = sp_model.decode(_clean(src_ids))
+                hyp_str = sp_model.decode(_clean(hyp_ids))
+                ref_str = sp_model.decode(_clean(ref_ids))
+                rows.append((src_str, ref_str, hyp_str))
+                samples_collected += 1
+
+    sep = "─" * 80
+    print(f"\n  [{model_type}] Decoded samples — epoch {epoch}")
+    print(f"  {sep}")
+    for src_str, ref_str, hyp_str in rows:
+        print(f"  Src : {src_str[:75]}")
+        print(f"  Ref : {ref_str[:75]}")
+        print(f"  Hyp : {hyp_str[:75]}")
+        print(f"  {sep}")
+
+
+def compute_attention_entropy(
+    model: nn.Module,
+    loader,
+    device: torch.device,
+    n_samples: int = 256,
+    eos_idx: int = 3,
+    pad_idx: int = 0,
+    amp_dtype: torch.dtype = torch.bfloat16,
+) -> Optional[float]:
+    """
+    Compute mean attention entropy over n_samples validation items.
+    Returns None if the model has no attention mechanism (baseline).
+
+    High entropy (near log(src_len)) → diffuse/uniform attention — mechanism
+    not focusing.  Decreasing entropy across epochs → attention is sharpening.
+    This is the primary diagnostic for whether Bahdanau attention is learning
+    to align or just passing through a weighted average.
+
+    Returns:
+        Mean entropy (nats) per decoder step, averaged over all steps and
+        all samples, or None for the baseline model.
+    """
+    if not hasattr(model.decoder, "attention"):
+        return None
+
+    model.eval()
+    _device_type = device.type if hasattr(device, "type") else str(device).split(":")[0]
+    total_entropy = 0.0
+    n_steps = 0
+    n_seen = 0
+    eps = 1e-10
+
+    with torch.no_grad():
+        for batch in loader:
+            if n_seen >= n_samples:
+                break
+            src = batch["src"].to(device, non_blocking=True)
+            src_lengths = batch["src_lengths"].to(device, non_blocking=True)
+            trg = batch["trg"].to(device, non_blocking=True)
+
+            with torch.amp.autocast(device_type=_device_type, dtype=amp_dtype,
+                                    enabled=_device_type == "cuda"):
+                encoder_outputs, (h_n, c_n) = model.encoder(src, src_lengths)
+                src_mask = (src == pad_idx)
+                h0, c0   = model.bridge(h_n, c_n)
+                keys_proj = model.decoder.attention.W_enc(encoder_outputs)
+
+            context     = torch.zeros(src.size(0), encoder_outputs.size(-1), device=device)
+            hidden, cell = h0, c0
+            input_token  = trg[:, 0]  # SOS
+
+            for t in range(1, min(trg.size(1), 40)):
+                with torch.amp.autocast(device_type=_device_type, dtype=amp_dtype,
+                                        enabled=_device_type == "cuda"):
+                    logits, hidden, cell, context, attn_weights = model.decoder.forward_step(
+                        input_token, hidden, cell, encoder_outputs, context,
+                        src_mask, keys_proj=keys_proj,
+                    )
+                if attn_weights is not None:
+                    # attn_weights: [batch, src_len] — already softmax'd probabilities.
+                    # Entropy H = -sum(p * log(p)).  Average over batch and step.
+                    ent = -(attn_weights * (attn_weights + eps).log()).sum(dim=-1).mean()
+                    total_entropy += ent.item()
+                    n_steps += 1
+                input_token = logits.argmax(dim=-1)
+
+            n_seen += src.size(0)
+
+    return total_entropy / max(n_steps, 1)
+
+
 def build_optimizer_and_scheduler(
     model: nn.Module,
     config: dict,
@@ -466,6 +610,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         "bleu":              [],   # corpus BLEU-4 on n_gen_samples val pairs
         "token_f1":          [],   # corpus token F1 (unigram word overlap, %) — robust for technical support
         "avg_pred_len": [], # collapse detector
+        "attn_entropy": [], # mean attention entropy per step (None for baseline)
         "tf_ratios":  [],
         "lrs":        [],
     }
@@ -576,6 +721,26 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             n_gen_samples=config.get("n_gen_samples", 1024),
         )
 
+        # 7d-extra. Qualitative monitoring — 10 decoded samples per epoch.
+        log_decoded_samples(
+            model=model, loader=val_loader, device=device, sp_model=_sp,
+            model_type=model_type, epoch=epoch,
+            n_samples=10,
+            pad_idx=config.get("pad_idx", 0),
+            eos_idx=config.get("eos_idx", 3),
+            amp_dtype=_amp_dtype,
+        )
+
+        # 7d-extra. Attention entropy (attention model only) — diagnostic for
+        # whether the alignment mechanism is learning to focus or staying diffuse.
+        attn_entropy = compute_attention_entropy(
+            model=model, loader=val_loader, device=device,
+            n_samples=256,
+            eos_idx=config.get("eos_idx", 3),
+            pad_idx=config.get("pad_idx", 0),
+            amp_dtype=_amp_dtype,
+        )
+
         # 7d. Step ReduceLROnPlateau with TF=1.0 val loss (stable primary signal).
         scheduler.step(val_loss)
         if torch.cuda.is_available():
@@ -633,6 +798,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         history["bleu"].append(bleu)
         history["token_f1"].append(token_f1)
         history["avg_pred_len"].append(avg_pred_len)
+        history["attn_entropy"].append(attn_entropy)
         history["tf_ratios"].append(tf_ratio)
         history["lrs"].append(lr)
 
@@ -680,6 +846,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
 
         # 7h. Epoch summary.
         _improved_marker = " ✓" if _improved else ""
+        _ent_str = f" | Ent: {attn_entropy:.3f}" if attn_entropy is not None else ""
         print(
             f"Epoch {epoch:3d}/{num_epochs} | "
             f"Train: {train_loss:.4f} | "
@@ -691,7 +858,8 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             f"Len: {avg_pred_len:.1f} | "
             f"LR: {lr:.2e} | "
             f"TF: {tf_ratio:.2f} | "
-            f"Grad: {avg_gnorm:.3f} | "
+            f"Grad: {avg_gnorm:.3f}"
+            f"{_ent_str} | "
             f"{elapsed:.1f}s"
             f"{_improved_marker}"
         )
