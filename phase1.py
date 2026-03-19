@@ -104,15 +104,26 @@ PHASE1_CONFIG = {
     "filter_non_english":            True,
     "filter_bot_responses":          True,
 
-    # Response diversity cap (train set only)
+    # Response diversity cap (train set only) — cap at 5 to break the
+    # one-to-many averaging problem: generic short responses like "try that"
+    # appeared 500+ times under different contexts, biasing the model toward
+    # safe, short, high-frequency outputs.
     "filter_response_diversity":     True,
-    "max_response_occurrences":      500,
+    "max_response_occurrences":      5,
+
+    # Context dedup: cap how many response pairs share the same normalised
+    # context hash.  Hard dedup (cap=1) is too aggressive for multi-turn IRC;
+    # cap=3 reduces redundancy while preserving valid alternative continuations.
+    "max_ctx_occurrences":           3,
 
     # Pair generation dimensions
     "max_ctx_tokens":                256,
     "max_ctx_turns":                 8,
     "max_resp_tokens":               50,
-    "min_resp_tokens":               5,    # raised from 3 — eliminates 3-4 token fragments
+    "min_resp_tokens":               7,    # raised from 5 — BPE subword floor; eliminates pure noise
+                                           # responses ("ok", "yes", "np", "try that") that drive
+                                           # the short-response incentive.  "sudo apt update" tokenises
+                                           # to >7 subword pieces so real short answers are preserved.
     "min_ctx_tokens":                3,    # discard pairs where full ctx < 3 words (degenerate: "yes", "__url__", "hello")
     "max_train_pairs":               1_500_000,   # 0 = no cap
 
@@ -924,8 +935,12 @@ def _generate_pairs_for_split(
     min_ctx_tokens  = cfg.get("min_ctx_tokens", 3)
 
     resp_counter: Counter = Counter()
-    max_occ = cfg.get("max_response_occurrences", 500)
+    max_occ = cfg.get("max_response_occurrences", 5)
     do_diversity = apply_diversity_filter and cfg.get("filter_response_diversity", True)
+
+    ctx_counter: Counter = Counter()
+    max_ctx_occ = cfg.get("max_ctx_occurrences", 3)
+    do_ctx_dedup = apply_diversity_filter  # same gate as response diversity (train only)
 
     disc = defaultdict(int)
     pairs: List[Dict] = []
@@ -1014,6 +1029,16 @@ def _generate_pairs_for_split(
                     disc["diversity_cap"] += 1
                     continue
                 resp_counter[resp_text] += 1
+
+            # Context dedup cap (train only) — same context hash can appear at
+            # most max_ctx_occurrences times.  Prevents high-frequency contexts
+            # (e.g. repeated "how do i install X") from dominating the loss.
+            if do_ctx_dedup:
+                _ctx_key = ctx_text  # already normalised by stage 2
+                if ctx_counter[_ctx_key] >= max_ctx_occ:
+                    disc["ctx_dedup_cap"] += 1
+                    continue
+                ctx_counter[_ctx_key] += 1
 
             pairs.append({"ctx": ctx_text, "resp": resp_text})
 
@@ -1590,9 +1615,11 @@ def main(cfg: Optional[Dict] = None, script_name: str = "phase1") -> None:
     print(f"  vocab_size         : {cfg.get('spm_vocab_size', cfg.get('vocab_size', 32000)):,}")
     print(f"  max_train_pairs    : {cfg.get('max_train_pairs', 0):,}  (0 = no cap)")
     print(f"  min_ctx_tokens     : {cfg.get('min_ctx_tokens', 3)}")
-    print(f"  min_resp_tokens    : {cfg.get('min_resp_tokens', 5)}")
-    print(f"  max_resp_tokens    : {cfg.get('max_resp_tokens', 40)}")
+    print(f"  min_resp_tokens    : {cfg.get('min_resp_tokens', 7)}")
+    print(f"  max_resp_tokens    : {cfg.get('max_resp_tokens', 50)}")
     print(f"  max_ctx_turns      : {cfg.get('max_ctx_turns', 8)}")
+    print(f"  max_resp_occ       : {cfg.get('max_response_occurrences', 5)}  (diversity cap)")
+    print(f"  max_ctx_occ        : {cfg.get('max_ctx_occurrences', 3)}  (context dedup cap)")
     print(f"  domain_filter      : {domain_filter}  (stage 4.5)")
     if domain_filter:
         print(f"  filter_strategy    : {filter_strategy}")
