@@ -72,6 +72,8 @@ def _container_cpu_count() -> int:
 
 _CPU_COUNT = _container_cpu_count()
 _WORKERS   = max(1, _CPU_COUNT - 1)             # leave 1 CPU for OS scheduler
+if os.name == "nt":                              # Windows: spawn overhead outweighs gains
+    _WORKERS = min(4, _WORKERS)
 
 log = logging.getLogger(__name__)
 
@@ -409,9 +411,15 @@ def _load_pickle(path: Path) -> object:
 
 
 def _config_hash(cfg: dict) -> str:                                             # FIX: D-1
-    """MD5 of the config dict — changes when any pipeline parameter changes."""
+    """MD5 of the config dict — changes when any *data-affecting* parameter changes.
+
+    Purely computational keys (worker counts, chunk size) are excluded so that
+    changing the number of CPU workers does not invalidate existing artifacts.
+    """
+    _EXCLUDE = {"num_workers", "fasttext_workers", "chunk_size"}
+    hashable = {k: v for k, v in cfg.items() if k not in _EXCLUDE}
     return hashlib.md5(
-        json.dumps(cfg, sort_keys=True, default=str).encode()
+        json.dumps(hashable, sort_keys=True, default=str).encode()
     ).hexdigest()[:12]
 
 

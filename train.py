@@ -146,7 +146,8 @@ def evaluate_epoch(
     criterion: nn.Module,
     device: torch.device,
     amp_dtype: torch.dtype = torch.bfloat16,
-) -> Tuple[float, float]:
+    eos_idx: int = 3,
+) -> Tuple[float, float, float]:
     """
     Validation pass — teacher forcing is DISABLED (ratio=0.0).
 
@@ -157,12 +158,18 @@ def evaluate_epoch(
     Loss is accumulated only on non-padding positions because criterion has
     ignore_index=pad_idx; padding tokens contribute zero to the mean.
 
+    avg_pred_len tracks the mean number of tokens generated up to and
+    including the first <eos> across all val sequences.  A sudden drop
+    (e.g. from ~12 → ~2) is an early signal of decoder collapse and allows
+    corrective action before wasting further training epochs.
+
     Returns:
-        (avg_val_loss, val_ppl) where val_ppl = exp(min(avg_val_loss, 20)).
+        (avg_val_loss, val_ppl, avg_pred_len)
     """
     model.eval()
 
     total_loss = 0.0
+    total_pred_len = 0.0
     n_batches = 0
 
     for batch in tqdm(loader, desc="  val", unit="batch", dynamic_ncols=True, leave=False):
@@ -184,11 +191,25 @@ def evaluate_epoch(
         )
 
         total_loss += loss.item()
+
+        # ── Predicted response length (collapse detector) ────────────────────
+        # argmax over vocab gives the greedy token at each step: [B, trg_len-1]
+        preds = output.argmax(-1)
+        eos_mask = preds.eq(eos_idx)                        # True where EOS predicted
+        has_eos  = eos_mask.any(dim=1)                      # [B] bool
+        # first_eos: position (0-indexed) of first EOS + 1 to make it a length.
+        # If no EOS is predicted, fall back to the full sequence length.
+        first_eos = eos_mask.long().argmax(dim=1).add(1)    # [B]
+        full_len  = torch.full_like(first_eos, preds.size(1))
+        lengths   = torch.where(has_eos, first_eos, full_len)
+        total_pred_len += lengths.float().mean().item()
+
         n_batches += 1
 
     avg_val_loss = total_loss / max(n_batches, 1)
     val_ppl = math.exp(min(avg_val_loss, 20))
-    return avg_val_loss, val_ppl
+    avg_pred_len = total_pred_len / max(n_batches, 1)
+    return avg_val_loss, val_ppl, avg_pred_len
 
 
 def build_optimizer_and_scheduler(
@@ -357,12 +378,13 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         )
 
         # 7c. Validate.
-        val_loss, val_ppl = evaluate_epoch(
+        val_loss, val_ppl, avg_pred_len = evaluate_epoch(
             model=model,
             loader=val_loader,
             criterion=criterion,
             device=device,
             amp_dtype=_amp_dtype,
+            eos_idx=config.get("eos_idx", 3),
         )
 
         # 7d. Step ReduceLROnPlateau with validation loss.
@@ -414,6 +436,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         history["val_loss"].append(val_loss)
         history["tf_ratios"].append(tf_ratio)
         history["lrs"].append(lr)
+        history.setdefault("avg_pred_len", []).append(avg_pred_len)
 
         # Early stopping active from Phase 2 onward.
         if _patience > 0 and epoch > config["tf_schedule"]["phase1_end"]:
@@ -466,6 +489,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             f"LR: {lr:.2e} | "
             f"TF: {tf_ratio:.2f} | "
             f"Grad: {avg_gnorm:.3f} | "
+            f"PredLen: {avg_pred_len:.1f} | "
             f"{elapsed:.1f}s"
         )
 

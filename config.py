@@ -53,7 +53,12 @@ def _container_cpu_count() -> int:
 _CPU_COUNT = _container_cpu_count()
 
 # Workers = all assigned CPUs minus 1 reserved for the OS scheduler.
+# Windows uses multiprocessing 'spawn' so DataLoader worker startup is
+# expensive; beyond ~4 workers the overhead exceeds the throughput gain.
+# On Linux / containers the cgroup quota is respected and all CPUs are used.
 _WORKERS = max(1, _CPU_COUNT - 1)
+if os.name == "nt":                    # Windows
+    _WORKERS = min(4, _WORKERS)
 
 # ── Tokenization ──────────────────────────────────────────────────────────────
 _TOKENIZATION = {
@@ -110,13 +115,17 @@ _TF_SCHEDULE = {
 # ── LR Scheduler ──────────────────────────────────────────────────────────────
 # ReduceLROnPlateau: halves LR when val loss stalls; scheduler.step(val_loss) once per epoch.
 _LR_SCHEDULER = {
-    "lr_scheduler_patience": 3,    # ReduceLROnPlateau patience (epochs)
+    "lr_scheduler_patience": 4,    # ReduceLROnPlateau patience (epochs)
+                                    # 4 (not 3) — val set is only ~187 batches so
+                                    # val loss is noisier; extra epoch avoids
+                                    # premature LR halving on a single noisy reading
     "lr_scheduler_factor":   0.5,  # LR multiplicative decay factor on plateau
 }
 
 # ── Loss ──────────────────────────────────────────────────────────────────────
 _LOSS = {
-    "label_smoothing":       0.0,
+    "label_smoothing":       0.1,   # prevents overconfidence on short IRC responses
+                                      # (median resp=14 tok); standard seq2seq practice
 }
 
 # ── Data ──────────────────────────────────────────────────────────────────────
