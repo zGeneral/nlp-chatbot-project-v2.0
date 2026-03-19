@@ -325,7 +325,10 @@ def evaluate_generation(
     avg_pred_len = total_pred_len / max(n_batches, 1)
     # Store total_active_tokens (not per-batch avg) so gen_loss is reconstructable from history
     avg_active_tokens = total_active_tokens / max(n_batches, 1)  # per-batch avg for display
-    bleu = _sacrebleu.corpus_bleu(hypotheses, [references]).score if hypotheses else 0.0
+    # force=True suppresses sacrebleu's "tokenized period" warning — SPM decode()
+    # produces spaces around punctuation that sacrebleu misidentifies as tokenized
+    # MT output.  Our text is correctly decoded; the spacing is a SPM artifact.
+    bleu = _sacrebleu.corpus_bleu(hypotheses, [references], force=True).score if hypotheses else 0.0
 
     # ── Corpus Token F1 (unigram word overlap) ────────────────────────────────
     # More robust than BLEU-4 for technical support: many valid phrasings of
