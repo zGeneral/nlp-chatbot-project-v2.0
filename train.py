@@ -216,8 +216,8 @@ def evaluate_generation(
     """
     Generation-quality pass — teacher forcing DISABLED (ratio=0.0).
 
-    Runs on the first n_gen_samples validation items only (one batch at
-    batch_size=1024) to keep per-epoch overhead low (~5s on A100).
+    Runs on the first n_gen_samples validation items (may span multiple
+    batches depending on val_loader batch size) to keep per-epoch overhead low.
 
     Five metrics are computed:
 
@@ -484,9 +484,21 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         # Issue #4 fix: derive best_val_loss from history minimum, not from the
         # checkpoint's val_loss field.  Resuming from last.pt at epoch N gives
         # val_loss=epoch_N_loss, which may be worse than the true best (saved in
-        # best.pt at an earlier epoch).  Using min(history) is always correct.
+        # best.pt at an earlier epoch).
+        #
+        # Phase 2 resume caveat: if we crash and resume during Phase 2, using
+        # min(all history) would restore the Phase 1 best (e.g. 3.9) as the
+        # baseline, defeating the Phase 2 reset (which set best=inf so Phase 2
+        # epochs only compete against each other).  Fix: when resuming mid-Phase
+        # 2, slice history to Phase 2 entries only.
         if history.get("val_loss"):
-            best_val_loss = min(history["val_loss"])
+            _phase1_end = config["tf_schedule"]["phase1_end"]
+            if start_epoch > _phase1_end + 1:
+                # Resuming inside Phase 2 — only Phase 2 val_losses count.
+                _phase2_losses = history["val_loss"][_phase1_end:]
+                best_val_loss = min(_phase2_losses) if _phase2_losses else float("inf")
+            else:
+                best_val_loss = min(history["val_loss"])
         else:
             best_val_loss = ckpt.get("val_loss", float("inf"))
 
