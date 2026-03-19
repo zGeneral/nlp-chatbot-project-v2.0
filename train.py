@@ -35,6 +35,7 @@ import os
 import json
 import math
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -229,7 +230,7 @@ def evaluate_generation(
         SentencePiece model.  Returns 0.0 if sp_model is None.
 
     Returns:
-        (gen_loss, avg_pred_len, bleu)
+        (gen_loss, avg_pred_len, bleu, token_f1)
     """
     model.eval()
     total_gen_loss = 0.0
@@ -303,7 +304,25 @@ def evaluate_generation(
     avg_gen_loss = total_gen_loss / max(n_batches, 1)
     avg_pred_len = total_pred_len / max(n_batches, 1)
     bleu = _sacrebleu.corpus_bleu(hypotheses, [references]).score if hypotheses else 0.0
-    return avg_gen_loss, avg_pred_len, bleu
+
+    # ── Corpus Token F1 (unigram word overlap) ────────────────────────────────
+    # More robust than BLEU-4 for technical support: many valid phrasings of
+    # the same answer score near-zero BLEU but high token overlap.
+    # Computed at corpus level: accumulate TP/hyp_len/ref_len across samples,
+    # then compute precision/recall/F1 once (avoids averaging of averages).
+    tp_total = hyp_total = ref_total = 0
+    for hyp_str, ref_str in zip(hypotheses, references):
+        hyp_toks = hyp_str.split()
+        ref_toks = ref_str.split()
+        common   = sum((Counter(hyp_toks) & Counter(ref_toks)).values())
+        tp_total  += common
+        hyp_total += len(hyp_toks)
+        ref_total += len(ref_toks)
+    p = tp_total / max(hyp_total, 1)
+    r = tp_total / max(ref_total, 1)
+    token_f1 = (2 * p * r / (p + r) * 100) if (p + r) > 0 else 0.0
+
+    return avg_gen_loss, avg_pred_len, bleu, token_f1
 
 
 def build_optimizer_and_scheduler(
@@ -419,6 +438,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         "val_loss":   [],   # TF=1.0 — primary signal for scheduler + checkpoint
         "gen_loss":   [],   # TF=0.0, post-EOS masked — generation quality proxy
         "bleu":       [],   # corpus BLEU-4 on n_gen_samples val pairs
+        "token_f1":   [],   # corpus token F1 (unigram word overlap, %) — robust for technical support
         "avg_pred_len": [], # collapse detector
         "tf_ratios":  [],
         "lrs":        [],
@@ -455,7 +475,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     print(f"[{model_type}] Training epochs {start_epoch}–{num_epochs}")
     print(f"  Val(TF1)  : TF=1.0, full val set  — drives scheduler + checkpoint (epoch-comparable)")
     print(f"  GenLoss   : TF=0.0, post-EOS mask  — note: scale shifts as Len shrinks (not epoch-comparable)")
-    print(f"  BLEU      : corpus BLEU-4 on {config.get('n_gen_samples', 1024)} val samples")
+    print(f"  BLEU/F1   : corpus BLEU-4 + token F1 on {config.get('n_gen_samples', 1024)} val samples")
 
     # ── 7. Training loop ──────────────────────────────────────────────────────
     for epoch in range(start_epoch, num_epochs + 1):
@@ -495,7 +515,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             device=device,
             amp_dtype=_amp_dtype,
         )
-        gen_loss, avg_pred_len, bleu = evaluate_generation(
+        gen_loss, avg_pred_len, bleu, token_f1 = evaluate_generation(
             model=model,
             loader=val_loader,
             device=device,
@@ -554,6 +574,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         history["val_loss"].append(val_loss)
         history["gen_loss"].append(gen_loss)
         history["bleu"].append(bleu)
+        history["token_f1"].append(token_f1)
         history["avg_pred_len"].append(avg_pred_len)
         history["tf_ratios"].append(tf_ratio)
         history["lrs"].append(lr)
@@ -609,6 +630,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             f"PPL: {val_ppl:.2f} | "
             f"GenLoss: {gen_loss:.4f} | "
             f"BLEU: {bleu:.2f} | "
+            f"F1: {token_f1:.2f} | "
             f"Len: {avg_pred_len:.1f} | "
             f"LR: {lr:.2e} | "
             f"TF: {tf_ratio:.2f} | "
