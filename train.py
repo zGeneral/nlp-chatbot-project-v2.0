@@ -40,7 +40,10 @@ from typing import Dict, List, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from tqdm import tqdm
+import sacrebleu as _sacrebleu
+import sentencepiece as _spm
 
 from config import CONFIG, get_tf_ratio, set_seed
 from dataset import build_dataloaders
@@ -140,76 +143,167 @@ def train_epoch(
 
 
 @torch.inference_mode()
-def evaluate_epoch(
+def evaluate_loss(
     model: nn.Module,
     loader,
     criterion: nn.Module,
     device: torch.device,
     amp_dtype: torch.dtype = torch.bfloat16,
-    eos_idx: int = 3,
-) -> Tuple[float, float, float]:
+) -> Tuple[float, float]:
     """
-    Validation pass — teacher forcing is DISABLED (ratio=0.0).
+    Primary validation pass — teacher forcing FULLY ENABLED (ratio=1.0).
 
-    trg is passed only to set the decoder step count (trg.size(1)-1 steps).
-    TF=0.0 means the model never sees gold tokens during the forward pass.
-    This is standard practice — true autoregressive evaluation is in evaluate.py.
+    Using TF=1.0 here gives a loss that is:
+      - Directly comparable to train loss (same conditioning)
+      - Stable across all epochs (unaffected by the model's own generation quality)
+      - The correct signal for ReduceLROnPlateau and best-checkpoint saving
 
-    Loss is accumulated only on non-padding positions because criterion has
-    ignore_index=pad_idx; padding tokens contribute zero to the mean.
-
-    avg_pred_len tracks the mean number of tokens generated up to and
-    including the first <eos> across all val sequences.  A sudden drop
-    (e.g. from ~12 → ~2) is an early signal of decoder collapse and allows
-    corrective action before wasting further training epochs.
+    The previous design used TF=0.0 for val loss, which caused a spurious spike
+    at epoch 2 when the model learned EOS: post-EOS tokens became garbage and
+    inflated val loss even as the model was genuinely improving.
 
     Returns:
-        (avg_val_loss, val_ppl, avg_pred_len)
+        (val_loss, val_ppl)
     """
     model.eval()
-
     total_loss = 0.0
+    n_batches = 0
+    _device_type = device.type if hasattr(device, "type") else str(device).split(":")[0]
+
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="  val", unit="batch", dynamic_ncols=True, leave=False):
+            src: torch.Tensor = batch["src"].to(device, non_blocking=True)
+            src_lengths: torch.Tensor = batch["src_lengths"].to(device, non_blocking=True)
+            trg: torch.Tensor = batch["trg"].to(device, non_blocking=True)
+
+            with torch.amp.autocast(device_type=_device_type, dtype=amp_dtype,
+                                    enabled=_device_type == "cuda"):
+                output = model(src, src_lengths, trg, teacher_forcing_ratio=1.0)
+
+            vocab_size: int = output.size(-1)
+            loss = criterion(
+                output.reshape(-1, vocab_size),
+                trg[:, 1:].reshape(-1),
+            )
+            total_loss += loss.item()
+            n_batches += 1
+
+    avg_loss = total_loss / max(n_batches, 1)
+    return avg_loss, math.exp(min(avg_loss, 20))
+
+
+def evaluate_generation(
+    model: nn.Module,
+    loader,
+    device: torch.device,
+    amp_dtype: torch.dtype = torch.bfloat16,
+    eos_idx: int = 3,
+    pad_idx: int = 1,
+    sp_model=None,
+    n_gen_samples: int = 1024,
+) -> Tuple[float, float, float]:
+    """
+    Generation-quality pass — teacher forcing DISABLED (ratio=0.0).
+
+    Runs on the first n_gen_samples validation items only (one batch at
+    batch_size=1024) to keep per-epoch overhead low (~5s on A100).
+
+    Three metrics are computed:
+
+    gen_loss:
+        Cross-entropy over *active* positions only — positions up to and
+        including the first EOS token.  Post-EOS tokens are masked out so
+        the loss is not inflated by garbage generated after the model's
+        intended stopping point.  Formula:
+            active = (cumsum(preds == eos_idx) <= 1) & (trg != pad_idx)
+            gen_loss = sum(CE[active]) / n_active
+
+    avg_pred_len:
+        Mean number of tokens generated up to and including the first EOS.
+        Collapse detector: a sudden drop to 2–3 signals the decoder has
+        learned to always output EOS immediately (mode collapse).
+
+    bleu:
+        Corpus BLEU-4 (sacrebleu) on the decoded n_gen_samples pairs.
+        Hypotheses and references are decoded from token IDs using the
+        SentencePiece model.  Returns 0.0 if sp_model is None.
+
+    Returns:
+        (gen_loss, avg_pred_len, bleu)
+    """
+    model.eval()
+    total_gen_loss = 0.0
     total_pred_len = 0.0
     n_batches = 0
+    n_seen = 0
+    hypotheses: List[str] = []
+    references: List[str] = []
+    _device_type = device.type if hasattr(device, "type") else str(device).split(":")[0]
+    _special = {0, 1, 2, eos_idx, pad_idx}  # unk/bos/eos/pad — strip from BLEU decode
 
-    for batch in tqdm(loader, desc="  val", unit="batch", dynamic_ncols=True, leave=False):
-        src: torch.Tensor = batch["src"].to(device, non_blocking=True)
-        src_lengths: torch.Tensor = batch["src_lengths"].to(device, non_blocking=True)
-        trg: torch.Tensor = batch["trg"].to(device, non_blocking=True)
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="  gen", unit="batch", dynamic_ncols=True, leave=False):
+            if n_seen >= n_gen_samples:
+                break
 
-        # Pass teacher_forcing_ratio=0.0 so the decoder uses its own predictions,
-        # not gold tokens.  trg still determines how many decode steps to run.
-        _device_type = device.type if hasattr(device, "type") else str(device).split(":")[0]
-        with torch.amp.autocast(device_type=_device_type, dtype=amp_dtype,
-                                enabled=_device_type == "cuda"):
-            output = model(src, src_lengths, trg, teacher_forcing_ratio=0.0)
+            src: torch.Tensor = batch["src"].to(device, non_blocking=True)
+            src_lengths: torch.Tensor = batch["src_lengths"].to(device, non_blocking=True)
+            trg: torch.Tensor = batch["trg"].to(device, non_blocking=True)
 
-        vocab_size: int = output.size(-1)
-        loss = criterion(
-            output.reshape(-1, vocab_size),
-            trg[:, 1:].reshape(-1),   # exclude <sos>; criterion ignores <pad>
-        )
+            with torch.amp.autocast(device_type=_device_type, dtype=amp_dtype,
+                                    enabled=_device_type == "cuda"):
+                output = model(src, src_lengths, trg, teacher_forcing_ratio=0.0)
 
-        total_loss += loss.item()
+            vocab_size: int = output.size(-1)
+            preds = output.argmax(-1)  # [B, T]
 
-        # ── Predicted response length (collapse detector) ────────────────────
-        # argmax over vocab gives the greedy token at each step: [B, trg_len-1]
-        preds = output.argmax(-1)
-        eos_mask = preds.eq(eos_idx)                        # True where EOS predicted
-        has_eos  = eos_mask.any(dim=1)                      # [B] bool
-        # first_eos: position (0-indexed) of first EOS + 1 to make it a length.
-        # If no EOS is predicted, fall back to the full sequence length.
-        first_eos = eos_mask.long().argmax(dim=1).add(1)    # [B]
-        full_len  = torch.full_like(first_eos, preds.size(1))
-        lengths   = torch.where(has_eos, first_eos, full_len)
-        total_pred_len += lengths.float().mean().item()
+            # ── Post-EOS mask ─────────────────────────────────────────────────
+            # cumsum of EOS hits across time: 0 before first EOS, ≥1 at and after.
+            # Keep positions where cumsum ≤ 1 (up to and including first EOS).
+            eos_cumsum = preds.eq(eos_idx).long().cumsum(dim=1)          # [B, T]
+            active = (eos_cumsum <= 1) & trg[:, 1:].ne(pad_idx)         # [B, T]
 
-        n_batches += 1
+            per_tok = F.cross_entropy(
+                output.reshape(-1, vocab_size),
+                trg[:, 1:].reshape(-1),
+                ignore_index=pad_idx,
+                reduction="none",
+            )  # [B*T]
+            n_active = active.reshape(-1).sum().clamp(min=1)
+            total_gen_loss += (per_tok[active.reshape(-1)].sum() / n_active).item()
 
-    avg_val_loss = total_loss / max(n_batches, 1)
-    val_ppl = math.exp(min(avg_val_loss, 20))
+            # ── PredLen (collapse detector) ───────────────────────────────────
+            has_eos   = preds.eq(eos_idx).any(dim=1)
+            first_eos = preds.eq(eos_idx).long().argmax(dim=1).add(1)
+            full_len  = torch.full_like(first_eos, preds.size(1))
+            lengths   = torch.where(has_eos, first_eos, full_len)
+            total_pred_len += lengths.float().mean().item()
+
+            # ── BLEU decode ───────────────────────────────────────────────────
+            if sp_model is not None:
+                for i in range(preds.size(0)):
+                    hyp_ids = preds[i].cpu().tolist()
+                    ref_ids = trg[i, 1:].cpu().tolist()
+                    try:
+                        hyp_ids = hyp_ids[:hyp_ids.index(eos_idx)]
+                    except ValueError:
+                        pass
+                    try:
+                        ref_ids = ref_ids[:ref_ids.index(eos_idx)]
+                    except ValueError:
+                        pass
+                    hyp_ids = [t for t in hyp_ids if t not in _special]
+                    ref_ids = [t for t in ref_ids  if t not in _special]
+                    hypotheses.append(sp_model.decode(hyp_ids))
+                    references.append(sp_model.decode(ref_ids))
+
+            n_batches += 1
+            n_seen += preds.size(0)
+
+    avg_gen_loss = total_gen_loss / max(n_batches, 1)
     avg_pred_len = total_pred_len / max(n_batches, 1)
-    return avg_val_loss, val_ppl, avg_pred_len
+    bleu = _sacrebleu.corpus_bleu(hypotheses, [references]).score if hypotheses else 0.0
+    return avg_gen_loss, avg_pred_len, bleu
 
 
 def build_optimizer_and_scheduler(
@@ -281,6 +375,14 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         pad_idx=config["pad_idx"],
     )
 
+    # ── 1b. SentencePiece model for BLEU decoding ─────────────────────────────
+    _sp = None
+    _spm_path = config.get("spm_model_path", "")
+    if _spm_path and Path(_spm_path).exists():
+        _sp = _spm.SentencePieceProcessor()
+        _sp.load(_spm_path)
+        print(f"[{model_type}] SP model loaded for BLEU: {_spm_path}")
+
     # ── 2. Model ─────────────────────────────────────────────────────────────
     model = build_model(model_type, config, device)
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -314,9 +416,12 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     _no_improve: int = 0
     history: Dict[str, List] = {
         "train_loss": [],
-        "val_loss": [],
-        "tf_ratios": [],
-        "lrs": [],
+        "val_loss":   [],   # TF=1.0 — primary signal for scheduler + checkpoint
+        "gen_loss":   [],   # TF=0.0, post-EOS masked — generation quality proxy
+        "bleu":       [],   # corpus BLEU-4 on n_gen_samples val pairs
+        "avg_pred_len": [], # collapse detector
+        "tf_ratios":  [],
+        "lrs":        [],
     }
 
     # Prefer last checkpoint (has most recent epoch) over best checkpoint
@@ -377,18 +482,28 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             scheduler=scheduler,
         )
 
-        # 7c. Validate.
-        val_loss, val_ppl, avg_pred_len = evaluate_epoch(
+        # 7c. Validate — two passes.
+        #     evaluate_loss : TF=1.0, full val set  → scheduler + checkpoint
+        #     evaluate_generation : TF=0.0, first 1024 items → gen metrics + BLEU
+        val_loss, val_ppl = evaluate_loss(
             model=model,
             loader=val_loader,
             criterion=criterion,
             device=device,
             amp_dtype=_amp_dtype,
+        )
+        gen_loss, avg_pred_len, bleu = evaluate_generation(
+            model=model,
+            loader=val_loader,
+            device=device,
+            amp_dtype=_amp_dtype,
             eos_idx=config.get("eos_idx", 3),
+            pad_idx=config.get("pad_idx", 1),
+            sp_model=_sp,
+            n_gen_samples=config.get("n_gen_samples", 1024),
         )
 
-        # 7d. Step ReduceLROnPlateau with validation loss.
-        #     Must be called AFTER validation, once per epoch.
+        # 7d. Step ReduceLROnPlateau with TF=1.0 val loss (stable primary signal).
         scheduler.step(val_loss)
         if torch.cuda.is_available():
             torch.cuda.synchronize()   # ensure all GPU work is done before measuring
@@ -434,9 +549,11 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         # 7g. Update history.
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
+        history["gen_loss"].append(gen_loss)
+        history["bleu"].append(bleu)
+        history["avg_pred_len"].append(avg_pred_len)
         history["tf_ratios"].append(tf_ratio)
         history["lrs"].append(lr)
-        history.setdefault("avg_pred_len", []).append(avg_pred_len)
 
         # Early stopping active from Phase 2 onward.
         if _patience > 0 and epoch > config["tf_schedule"]["phase1_end"]:
@@ -481,16 +598,20 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         os.replace(tmp_last, last_ckpt_path)
 
         # 7h. Epoch summary.
+        _improved_marker = " ✓" if _improved else ""
         print(
             f"Epoch {epoch:3d}/{num_epochs} | "
             f"Train: {train_loss:.4f} | "
-            f"Val: {val_loss:.4f} | "
+            f"Val(TF1): {val_loss:.4f} | "
             f"PPL: {val_ppl:.2f} | "
+            f"GenLoss: {gen_loss:.4f} | "
+            f"BLEU: {bleu:.2f} | "
+            f"Len: {avg_pred_len:.1f} | "
             f"LR: {lr:.2e} | "
             f"TF: {tf_ratio:.2f} | "
             f"Grad: {avg_gnorm:.3f} | "
-            f"PredLen: {avg_pred_len:.1f} | "
             f"{elapsed:.1f}s"
+            f"{_improved_marker}"
         )
 
     # ── 8. Save history JSON (atomic write) ─────────────────────────────────
