@@ -1053,7 +1053,10 @@ def stage4_generate_pairs(
     """Extract (context, response) string pairs from all three splits.
 
     Applies the response diversity filter on train only.
-    Caps train to cfg['max_train_pairs'] if > 0.
+    Caps train to cfg['max_train_pairs'] only when domain_filter=False.
+    When domain_filter=True, capping is deferred to stage4_5_domain_filter
+    so the cap is applied AFTER domain filtering — this ensures the cap budget
+    is spent entirely on domain-relevant pairs rather than a random mix.
     Returns (train_pairs, val_pairs, test_pairs, stats).
     """
     print("  Generating train pairs …")
@@ -1061,13 +1064,17 @@ def stage4_generate_pairs(
     _train_pre_cap = len(train_pairs)  # save before cap for accurate attrition table
     print(f"    train raw: {_train_pre_cap:,}  discards: {train_disc}")
 
+    # Apply cap here only when stage 4.5 is disabled; otherwise defer to stage 4.5
+    # so the cap is spent on domain-relevant pairs (filter first, then cap).
+    _defer_cap = cfg.get("domain_filter", False)
     max_pairs = cfg.get("max_train_pairs", 0)
-    if max_pairs > 0 and len(train_pairs) > max_pairs:
-        # FIX: G-5 — use seeded rng instead of bare random.shuffle
+    if not _defer_cap and max_pairs > 0 and len(train_pairs) > max_pairs:
         _rng = random.Random(cfg.get("seed", 42))
         _rng.shuffle(train_pairs)
         train_pairs = train_pairs[:max_pairs]
         print(f"    train capped to {max_pairs:,} (randomly sampled)")
+    elif _defer_cap and max_pairs > 0:
+        print(f"    train cap ({max_pairs:,}) deferred to stage 4.5 (domain filter first)")
 
     if len(train_pairs) == 0:
         raise ValueError("Stage 4: 0 train pairs produced — check filters and corpus path.")
@@ -1221,6 +1228,20 @@ def stage4_5_domain_filter(
             "Check strategy and corpus content."
         )
 
+    # Apply train cap here (deferred from stage 4 when domain_filter=True).
+    # Capping after domain filtering ensures the budget is spent on
+    # domain-relevant pairs only, not a random mix of domain + off-topic.
+    max_pairs = cfg.get("max_train_pairs", 0)
+    _pre_cap = len(f_train)
+    if max_pairs > 0 and _pre_cap > max_pairs:
+        _rng = random.Random(cfg.get("seed", 42))
+        _rng.shuffle(f_train)
+        f_train = f_train[:max_pairs]
+        print(f"  train capped to {max_pairs:,} after domain filter "
+              f"({_pre_cap:,} domain pairs available, {_pre_cap - max_pairs:,} discarded)")
+        s_train["pre_cap"] = _pre_cap
+        s_train["kept"] = len(f_train)
+
     stats = {
         "stage": "4.5",
         "strategy": strategy,
@@ -1231,11 +1252,16 @@ def stage4_5_domain_filter(
 
     # Attrition summary for stage 4.5 domain filter.
     print(f"\n  Stage 4.5 domain filter attrition (strategy={strategy!r}):")
-    print(f"  {'Split':<8}  {'Raw':>10}  {'Kept':>10}  {'Dropped':>10}  {'%Kept':>7}")
-    print(f"  {'─'*8}  {'─'*10}  {'─'*10}  {'─'*10}  {'─'*7}")
-    for split_name, s in [("train", s_train), ("val", s_val), ("test", s_test)]:
-        dropped = s["total"] - s["kept"]
-        print(f"  {split_name:<8}  {s['total']:>10,}  {s['kept']:>10,}  {dropped:>10,}  {s['pct']:>6.1f}%")
+    print(f"  {'Split':<8}  {'Raw':>10}  {'Domain kept':>12}  {'After cap':>10}  {'%Final':>7}")
+    print(f"  {'─'*8}  {'─'*10}  {'─'*12}  {'─'*10}  {'─'*7}")
+    for split_name, s, final_len in [
+        ("train", s_train, len(f_train)),
+        ("val",   s_val,   len(f_val)),
+        ("test",  s_test,  len(f_test)),
+    ]:
+        domain_kept = s.get("pre_cap", final_len)
+        pct = 100.0 * final_len / max(s["total"], 1)
+        print(f"  {split_name:<8}  {s['total']:>10,}  {domain_kept:>12,}  {final_len:>10,}  {pct:>6.1f}%")
     print()
 
     return f_train, f_val, f_test, stats
