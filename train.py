@@ -199,10 +199,10 @@ def evaluate_generation(
     device: torch.device,
     amp_dtype: torch.dtype = torch.bfloat16,
     eos_idx: int = 3,
-    pad_idx: int = 1,
+    pad_idx: int = 0,
     sp_model=None,
     n_gen_samples: int = 1024,
-) -> Tuple[float, float, float]:
+) -> Tuple[float, float, float, float, float]:
     """
     Generation-quality pass — teacher forcing DISABLED (ratio=0.0).
 
@@ -230,11 +230,12 @@ def evaluate_generation(
         SentencePiece model.  Returns 0.0 if sp_model is None.
 
     Returns:
-        (gen_loss, avg_pred_len, bleu, token_f1)
+        (gen_loss, avg_pred_len, bleu, token_f1, avg_active_tokens)
     """
     model.eval()
     total_gen_loss = 0.0
     total_pred_len = 0.0
+    total_active_tokens = 0
     n_batches = 0
     n_seen = 0
     hypotheses: List[str] = []
@@ -272,6 +273,7 @@ def evaluate_generation(
             )  # [B*T]
             n_active = active.reshape(-1).sum().clamp(min=1)
             total_gen_loss += (per_tok[active.reshape(-1)].sum() / n_active).item()
+            total_active_tokens += n_active.item()
 
             # ── PredLen (collapse detector) ───────────────────────────────────
             has_eos   = preds.eq(eos_idx).any(dim=1)
@@ -303,6 +305,7 @@ def evaluate_generation(
 
     avg_gen_loss = total_gen_loss / max(n_batches, 1)
     avg_pred_len = total_pred_len / max(n_batches, 1)
+    avg_active_tokens = total_active_tokens / max(n_batches, 1)  # normalization denominator for gen_loss
     bleu = _sacrebleu.corpus_bleu(hypotheses, [references]).score if hypotheses else 0.0
 
     # ── Corpus Token F1 (unigram word overlap) ────────────────────────────────
@@ -322,7 +325,7 @@ def evaluate_generation(
     r = tp_total / max(ref_total, 1)
     token_f1 = (2 * p * r / (p + r) * 100) if (p + r) > 0 else 0.0
 
-    return avg_gen_loss, avg_pred_len, bleu, token_f1
+    return avg_gen_loss, avg_pred_len, bleu, token_f1, avg_active_tokens
 
 
 def build_optimizer_and_scheduler(
@@ -436,9 +439,10 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
     history: Dict[str, List] = {
         "train_loss": [],
         "val_loss":   [],   # TF=1.0 — primary signal for scheduler + checkpoint
-        "gen_loss":   [],   # TF=0.0, post-EOS masked — generation quality proxy
-        "bleu":       [],   # corpus BLEU-4 on n_gen_samples val pairs
-        "token_f1":   [],   # corpus token F1 (unigram word overlap, %) — robust for technical support
+        "gen_loss":          [],   # TF=0.0, post-EOS masked — generation quality proxy
+        "avg_active_tokens": [],   # avg active (pre-EOS) tokens per batch — gen_loss denominator
+        "bleu":              [],   # corpus BLEU-4 on n_gen_samples val pairs
+        "token_f1":          [],   # corpus token F1 (unigram word overlap, %) — robust for technical support
         "avg_pred_len": [], # collapse detector
         "tf_ratios":  [],
         "lrs":        [],
@@ -515,13 +519,13 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             device=device,
             amp_dtype=_amp_dtype,
         )
-        gen_loss, avg_pred_len, bleu, token_f1 = evaluate_generation(
+        gen_loss, avg_pred_len, bleu, token_f1, avg_active_tokens = evaluate_generation(
             model=model,
             loader=val_loader,
             device=device,
             amp_dtype=_amp_dtype,
             eos_idx=config.get("eos_idx", 3),
-            pad_idx=config.get("pad_idx", 1),
+            pad_idx=config.get("pad_idx", 0),
             sp_model=_sp,
             n_gen_samples=config.get("n_gen_samples", 1024),
         )
@@ -544,8 +548,14 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         if epoch == _phase1_end + 1:
             best_val_loss = float("inf")
             _no_improve = 0
+            # Reset ReduceLROnPlateau's internal state so Phase 1 bad-epoch
+            # counts don't consume Phase 2 patience budget.  Without this the
+            # scheduler's own `best` and `num_bad_epochs` carry over, and LR
+            # can halve on epoch 7 before the model has adapted to lower TF.
+            scheduler.best = float("inf")
+            scheduler.num_bad_epochs = 0
             print(f"[{model_type}] Phase 2 begins (epoch {epoch}) — "
-                  f"resetting best_val_loss and early-stopping counter")
+                  f"resetting best_val_loss, early-stopping counter, and scheduler state")
 
         # Capture improvement BEFORE updating best_val_loss.
         _improved = val_loss < best_val_loss
@@ -557,7 +567,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
                 "model_type": model_type,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state": optimizer.state_dict(),
-                "scheduler_state": scheduler.state_dict(),
                 "val_loss": val_loss,
                 "val_ppl": val_ppl,
                 "train_loss": train_loss,
@@ -573,6 +582,7 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
         history["gen_loss"].append(gen_loss)
+        history["avg_active_tokens"].append(avg_active_tokens)
         history["bleu"].append(bleu)
         history["token_f1"].append(token_f1)
         history["avg_pred_len"].append(avg_pred_len)
@@ -595,7 +605,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
                         "model_type": model_type,
                         "model_state_dict": model.state_dict(),
                         "optimizer_state": optimizer.state_dict(),
-                        "scheduler_state": scheduler.state_dict(),
                         "val_loss": val_loss,
                         "config": dict(config),
                         "history": history,
@@ -612,7 +621,6 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             "model_type": model_type,
             "model_state_dict": model.state_dict(),
             "optimizer_state": optimizer.state_dict(),
-            "scheduler_state": scheduler.state_dict(),
             "val_loss": val_loss,
             "config": dict(config),
             "history": history,
