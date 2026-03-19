@@ -70,3 +70,8 @@ Thumbs.db
 secrets.yaml
 report/figures/*.pdf
 ~$*.docx
+
+# Backup run snapshots (large .pt checkpoints)
+backup/*/checkpoints/*.pt
+backup/*/checkpoints/*.pth
+backup/*/checkpoints/*.json
