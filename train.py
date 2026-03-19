@@ -382,8 +382,16 @@ def log_decoded_samples(
     samples_collected = 0
     rows = []
 
+    # Use num_workers=0 to avoid DataLoader prefetch-queue deadlock when
+    # breaking early from a multi-worker loader.
+    from torch.utils.data import DataLoader as _DL
+    _bs = loader.batch_size or 32
+    _cf = getattr(loader, "collate_fn", None)
+    safe_loader = _DL(loader.dataset, batch_size=_bs, shuffle=False,
+                      num_workers=0, collate_fn=_cf, pin_memory=False)
+
     with torch.no_grad():
-        for batch in loader:
+        for batch in safe_loader:
             if samples_collected >= n_samples:
                 break
             src = batch["src"].to(device, non_blocking=True)
@@ -401,7 +409,6 @@ def log_decoded_samples(
                 hyp_ids  = preds[i].cpu().tolist()
                 ref_ids  = trg[i, 1:].cpu().tolist()
 
-                # Strip to first EOS then remove specials.
                 def _clean(ids):
                     try: ids = ids[:ids.index(eos_idx)]
                     except ValueError: pass
@@ -455,8 +462,14 @@ def compute_attention_entropy(
     n_seen = 0
     eps = 1e-10
 
+    from torch.utils.data import DataLoader as _DL
+    _bs = loader.batch_size or 32
+    _cf = getattr(loader, "collate_fn", None)
+    safe_loader = _DL(loader.dataset, batch_size=_bs, shuffle=False,
+                      num_workers=0, collate_fn=_cf, pin_memory=False)
+
     with torch.no_grad():
-        for batch in loader:
+        for batch in safe_loader:
             if n_seen >= n_samples:
                 break
             src = batch["src"].to(device, non_blocking=True)
