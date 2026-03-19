@@ -453,6 +453,9 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
 
     num_epochs: int = config["num_epochs"]
     print(f"[{model_type}] Training epochs {start_epoch}–{num_epochs}")
+    print(f"  Val(TF1)  : TF=1.0, full val set  — drives scheduler + checkpoint (epoch-comparable)")
+    print(f"  GenLoss   : TF=0.0, post-EOS mask  — note: scale shifts as Len shrinks (not epoch-comparable)")
+    print(f"  BLEU      : corpus BLEU-4 on {config.get('n_gen_samples', 1024)} val samples")
 
     # ── 7. Training loop ──────────────────────────────────────────────────────
     for epoch in range(start_epoch, num_epochs + 1):
