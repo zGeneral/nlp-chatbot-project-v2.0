@@ -198,6 +198,7 @@ def finetune(
     }
 
     best_val_loss = float("inf")
+    best_gen_loss = float("inf")   # separate criterion for free-running quality
     _patience     = config.get("patience", 6)
     _no_improve   = 0
     global_step   = 0
@@ -259,29 +260,47 @@ def finetune(
         # ── Scheduler step ────────────────────────────────────────────────────
         scheduler.step(val_loss)
 
-        # ── Best checkpoint ───────────────────────────────────────────────────
+        # ── Build current checkpoint data (always, not just on improvement) ──
+        # Defined here so both best-val and best-gen checkpoints can use it,
+        # and so the secondary F1 branch never references a stale/undefined var.
+        _current_ckpt = {
+            "epoch":            epoch,
+            "ft_epoch":         epoch,
+            "source_epoch":     src_epoch,
+            "global_step":      global_step,
+            "model_type":       model_type,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state":  optimizer.state_dict(),
+            "val_loss":         val_loss,
+            "val_ppl":          val_ppl,
+            "gen_loss":         gen_loss,
+            "token_f1":         token_f1,
+            "train_loss":       train_loss,
+            "tf_ratio":         tf_ratio,
+            "ft_tf_floor":      ft_tf_floor,
+            "config":           config,
+            "history":          history,
+        }
+
+        # ── Best val-loss checkpoint (epoch-comparable, primary signal) ───────
         _improved = val_loss < best_val_loss
         if _improved:
             best_val_loss = val_loss
-            ckpt_data = {
-                "epoch":            epoch,
-                "ft_epoch":         epoch,
-                "source_epoch":     src_epoch,
-                "global_step":      global_step,
-                "model_type":       model_type,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state":  optimizer.state_dict(),
-                "val_loss":         val_loss,
-                "val_ppl":          val_ppl,
-                "train_loss":       train_loss,
-                "tf_ratio":         tf_ratio,
-                "ft_tf_floor":      ft_tf_floor,
-                "config":           config,
-                "history":          history,
-            }
             tmp = ft_best + ".tmp"
-            torch.save(ckpt_data, tmp)
+            torch.save(_current_ckpt, tmp)
             os.replace(tmp, ft_best)
+
+        # ── Best gen-loss checkpoint (free-running quality — key for TF→0) ───
+        # Reviewer point 3: val_loss (TF=1.0) and gen_loss (TF=0.0) can diverge
+        # during low-TF fine-tuning. Save a separate gen checkpoint so we can
+        # pick whichever performs better at inference time.
+        ft_best_gen = ft_best.replace("_ft_best.pt", "_ft_best_gen.pt")
+        _gen_improved = gen_loss < best_gen_loss
+        if _gen_improved:
+            best_gen_loss = gen_loss
+            tmp_gen = ft_best_gen + ".tmp"
+            torch.save(_current_ckpt, tmp_gen)
+            os.replace(tmp_gen, ft_best_gen)
 
         # ── History ───────────────────────────────────────────────────────────
         history["train_loss"].append(train_loss)
@@ -304,8 +323,7 @@ def finetune(
             _f1_smooth_prev = (_f1_hist[-3] + _f1_hist[-4]) / 2.0
             if _f1_smooth_now - _f1_smooth_prev >= 1.0:
                 _f1_ckpt = ft_best.replace("_ft_best.pt", "_ft_best_f1.pt")
-                _f1_data = {**ckpt_data,  # type: ignore[name-defined]
-                            "token_f1": token_f1, "f1_smooth": _f1_smooth_now}
+                _f1_data = {**_current_ckpt, "f1_smooth": _f1_smooth_now}
                 _f1_tmp = _f1_ckpt + ".tmp"
                 torch.save(_f1_data, _f1_tmp)
                 os.replace(_f1_tmp, _f1_ckpt)
@@ -352,7 +370,8 @@ def finetune(
         json.dump(history, fh, indent=2)
     os.replace(tmp_hist, hist_path)
     print(f"\n  [{model_type}] Fine-tune history saved → {hist_path}")
-    print(f"  [{model_type}] Best ft val_loss = {best_val_loss:.4f}")
+    print(f"  [{model_type}] Best ft val_loss = {best_val_loss:.4f}  → {ft_best}")
+    print(f"  [{model_type}] Best ft gen_loss = {best_gen_loss:.4f}  → {ft_best_gen}")
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
