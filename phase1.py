@@ -1063,6 +1063,22 @@ def stage4_generate_pairs(
         "val_discards":   val_disc,
         "test_discards":  test_disc,
     }
+
+    # Filter attrition table — resolves H-1 from nb01 review.
+    # Print once here so the pipeline log permanently records how many pairs
+    # each filter removed. Run-to-run comparison makes filter tuning visible.
+    _total_raw = sum(train_disc.values()) + len(train_pairs)
+    print("\n  Stage 4 filter attrition (train):")
+    print(f"  {'Filter':<30s}  {'Removed':>10s}  {'% of raw':>9s}")
+    print(f"  {'─'*30}  {'─'*10}  {'─'*9}")
+    for name, count in sorted(train_disc.items(), key=lambda x: -x[1]):
+        pct = 100.0 * count / max(_total_raw, 1)
+        print(f"  {name:<30s}  {count:>10,}  {pct:>8.1f}%")
+    print(f"  {'─'*30}  {'─'*10}  {'─'*9}")
+    print(f"  {'KEPT':<30s}  {len(train_pairs):>10,}  {100.*len(train_pairs)/max(_total_raw,1):>8.1f}%")
+    print(f"  {'RAW TOTAL':<30s}  {_total_raw:>10,}")
+    print()
+
     return train_pairs, val_pairs, test_pairs, stats
 
 
@@ -1183,6 +1199,16 @@ def stage4_5_domain_filter(
         "val":   s_val,
         "test":  s_test,
     }
+
+    # Attrition summary for stage 4.5 domain filter.
+    print(f"\n  Stage 4.5 domain filter attrition (strategy={strategy!r}):")
+    print(f"  {'Split':<8}  {'Raw':>10}  {'Kept':>10}  {'Dropped':>10}  {'%Kept':>7}")
+    print(f"  {'─'*8}  {'─'*10}  {'─'*10}  {'─'*10}  {'─'*7}")
+    for split_name, s in [("train", s_train), ("val", s_val), ("test", s_test)]:
+        dropped = s["total"] - s["kept"]
+        print(f"  {split_name:<8}  {s['total']:>10,}  {s['kept']:>10,}  {dropped:>10,}  {s['pct']:>6.1f}%")
+    print()
+
     return f_train, f_val, f_test, stats
 
 

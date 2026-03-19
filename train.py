@@ -815,6 +815,38 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
         history["tf_ratios"].append(tf_ratio)
         history["lrs"].append(lr)
 
+        # Secondary F1-based checkpoint: save when generation quality is clearly
+        # improving even if val_loss has plateaued (data-quality-ceiling regime).
+        # Only fires when val_loss has gone flat (Phase 2, ≥4 epochs after phase1_end)
+        # and smoothed F1 improves by ≥1.0 over the previous smoothed value.
+        # Uses a 2-epoch rolling average to suppress 1024-sample noise.
+        _f1_hist = history["token_f1"]
+        _phase1_end_f1 = config["tf_schedule"]["phase1_end"]
+        if (epoch > _phase1_end_f1 + 4
+                and len(_f1_hist) >= 4
+                and not _improved):
+            _f1_smooth_now  = (_f1_hist[-1] + _f1_hist[-2]) / 2.0
+            _f1_smooth_prev = (_f1_hist[-3] + _f1_hist[-4]) / 2.0
+            if _f1_smooth_now - _f1_smooth_prev >= 1.0:
+                _f1_ckpt_path = best_ckpt_path.replace("_best.pt", "_best_f1.pt")
+                _f1_ckpt_data = {
+                    "epoch": epoch,
+                    "global_step": global_step,
+                    "model_type": model_type,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state": optimizer.state_dict(),
+                    "val_loss": val_loss,
+                    "token_f1": token_f1,
+                    "f1_smooth": _f1_smooth_now,
+                    "config": dict(config),
+                    "history": history,
+                }
+                _f1_tmp = _f1_ckpt_path + ".tmp"
+                torch.save(_f1_ckpt_data, _f1_tmp)
+                os.replace(_f1_tmp, _f1_ckpt_path)
+                print(f"[{model_type}] F1 checkpoint saved at epoch {epoch} "
+                      f"(smoothed F1 {_f1_smooth_prev:.2f}→{_f1_smooth_now:.2f})")
+
         # Early stopping active from Phase 2 onward.
         if _patience > 0 and epoch > config["tf_schedule"]["phase1_end"]:
             if _improved:
