@@ -91,8 +91,8 @@ _TRAINING = {
     "learning_rate":         3e-4,    # peak LR (reached after warmup; cosine decays from here)
     "weight_decay":          1e-5,    # L2 regularisation
     "max_grad_norm":         1.0,     # gradient clipping
-    "batch_size":            512,     # per-step batch size (same effective 512 as before, accum removed)
-    "grad_accum_steps":      1,       # no accumulation — eliminates Python loop overhead (~10–15% speedup)
+    "batch_size":            1024,    # A100-80GB: 2× throughput; Adam's adaptive v_t absorbs variance reduction
+    "grad_accum_steps":      1,       # no accumulation needed
     "num_epochs":            20,      # total training epochs
     "amp_dtype":             "bfloat16",  # automatic mixed precision dtype
     "patience":              4,       # early stopping patience (0 = disabled); monitoring
