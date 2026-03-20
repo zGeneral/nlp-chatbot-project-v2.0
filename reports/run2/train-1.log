@@ -1,0 +1,108 @@
+(venv) [1000910000@seq2seq-workbench-0 nlp-chatbot-project-v2.0]$ python train.py 
+======================================================================
+  Device  : cuda  (NVIDIA A100-SXM4-80GB)
+  Profile : profile='A100'
+  Batch   : 1024 × 1 accum = 1024 effective
+  Epochs  : 20  |  LR : 3.0e-04
+======================================================================
+
+======================================================================
+  TRAINING: baseline (no attention)
+======================================================================
+Loaded 1070445 pairs from /opt/app-root/src/nlp-chatbot-project-v2.0/artifacts/stage6_train_ids.jsonl
+Loaded 47791 pairs from /opt/app-root/src/nlp-chatbot-project-v2.0/artifacts/stage6_val_ids.jsonl
+Loaded 47805 pairs from /opt/app-root/src/nlp-chatbot-project-v2.0/artifacts/stage6_test_ids.jsonl
+[baseline] SP model loaded for BLEU: /opt/app-root/src/nlp-chatbot-project-v2.0/artifacts/stage5_spm.model
+[build_model] model_type     : baseline
+[build_model] encoder params : 19,233,792
+[build_model] bridge  params : 2,099,200
+[build_model] decoder params : 45,087,488
+[build_model] total   params : 56,820,480
+
+[baseline] Trainable parameters: 56,820,480
+  GPU memory after model load: 0.23 GB allocated, 0.32 GB reserved
+[baseline] Training epochs 1–20
+  Val(TF1)  : TF=1.0, full val set  — drives scheduler + checkpoint (epoch-comparable)
+  GenLoss   : TF=0.0, post-EOS mask  — note: scale shifts as Len shrinks (not epoch-comparable)
+  BLEU/F1   : corpus BLEU-4 + token F1 on 1024 val samples
+  Epoch   1 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:06<00:00,  4.23batch/s, grad_norm=0.246, loss=6.7636]
+Epoch   1/20 | Train: 6.9776 | Val(TF1): 6.8305 | PPL: 925.61 | GenLoss: 6.6305 | BLEU: 0.00 | F1: 1.03 | Len: 51.0 | LR: 3.00e-04 | TF: 1.00 | Grad: 0.303 | 253.3s ✓                                                                          
+  Epoch   2 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:07<00:00,  4.23batch/s, grad_norm=0.306, loss=5.7959]
+Epoch   2/20 | Train: 6.1062 | Val(TF1): 5.7812 | PPL: 324.16 | GenLoss: 7.9960 | BLEU: 0.55 | F1: 12.51 | Len: 11.0 | LR: 3.00e-04 | TF: 1.00 | Grad: 0.234 | 252.4s ✓                                                                         
+  Epoch   3 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:06<00:00,  4.24batch/s, grad_norm=0.208, loss=5.5697]
+Epoch   3/20 | Train: 5.6740 | Val(TF1): 5.5499 | PPL: 257.20 | GenLoss: 8.0212 | BLEU: 0.22 | F1: 12.16 | Len: 10.4 | LR: 3.00e-04 | TF: 1.00 | Grad: 0.207 | 251.7s ✓                                                                         
+  Epoch   4 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:06<00:00,  4.24batch/s, grad_norm=0.234, loss=5.4602]
+Epoch   4/20 | Train: 5.5058 | Val(TF1): 5.3856 | PPL: 218.25 | GenLoss: 8.0889 | BLEU: 0.14 | F1: 10.82 | Len: 8.2 | LR: 3.00e-04 | TF: 1.00 | Grad: 0.206 | 252.1s ✓                                                                          
+  Epoch   5 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:06<00:00,  4.24batch/s, grad_norm=0.177, loss=5.3416]
+Epoch   5/20 | Train: 5.3794 | Val(TF1): 5.2926 | PPL: 198.85 | GenLoss: 8.0579 | BLEU: 0.66 | F1: 12.78 | Len: 9.5 | LR: 3.00e-04 | TF: 1.00 | Grad: 0.207 | 251.9s ✓                                                                          
+  Epoch   6 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:10<00:00,  4.18batch/s, grad_norm=0.208, loss=5.4912]
+[baseline] Phase 2 begins (epoch 6) — resetting best_val_loss, early-stopping counter, and scheduler state                                                                                                                                      
+Epoch   6/20 | Train: 5.5015 | Val(TF1): 5.2427 | PPL: 189.18 | GenLoss: 7.2609 | BLEU: 0.65 | F1: 12.65 | Len: 9.0 | LR: 3.00e-04 | TF: 0.90 | Grad: 0.196 | 255.5s ✓
+  Epoch   7 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:10<00:00,  4.17batch/s, grad_norm=0.179, loss=5.4939]
+Epoch   7/20 | Train: 5.5593 | Val(TF1): 5.2221 | PPL: 185.32 | GenLoss: 6.9063 | BLEU: 0.59 | F1: 13.21 | Len: 9.0 | LR: 3.00e-04 | TF: 0.83 | Grad: 0.192 | 255.8s ✓                                                                          
+  Epoch   8 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:10<00:00,  4.17batch/s, grad_norm=0.186, loss=5.6576]
+Epoch   8/20 | Train: 5.6250 | Val(TF1): 5.2061 | PPL: 182.38 | GenLoss: 6.6086 | BLEU: 0.70 | F1: 13.93 | Len: 8.4 | LR: 3.00e-04 | TF: 0.77 | Grad: 0.189 | 255.8s ✓                                                                          
+  Epoch   9 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:10<00:00,  4.17batch/s, grad_norm=0.181, loss=5.6663]
+Epoch   9/20 | Train: 5.6952 | Val(TF1): 5.2015 | PPL: 181.54 | GenLoss: 6.3218 | BLEU: 0.51 | F1: 14.55 | Len: 7.5 | LR: 3.00e-04 | TF: 0.70 | Grad: 0.184 | 256.0s ✓                                                                          
+  Epoch  10 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:10<00:00,  4.18batch/s, grad_norm=0.175, loss=5.7399]
+Epoch  10/20 | Train: 5.7667 | Val(TF1): 5.2028 | PPL: 181.78 | GenLoss: 6.1268 | BLEU: 0.38 | F1: 14.61 | Len: 7.0 | LR: 3.00e-04 | TF: 0.63 | Grad: 0.181 | 255.7s                                                                            
+  Epoch  11 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:10<00:00,  4.17batch/s, grad_norm=0.174, loss=5.8281]
+Epoch  11/20 | Train: 5.8399 | Val(TF1): 5.2121 | PPL: 183.48 | GenLoss: 5.9749 | BLEU: 0.44 | F1: 13.75 | Len: 6.7 | LR: 3.00e-04 | TF: 0.57 | Grad: 0.181 | 256.0s                                                                            
+  Epoch  12 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:10<00:00,  4.16batch/s, grad_norm=0.158, loss=5.8878]
+Epoch  12/20 | Train: 5.9131 | Val(TF1): 5.2254 | PPL: 185.94 | GenLoss: 5.9420 | BLEU: 0.42 | F1: 14.03 | Len: 6.7 | LR: 3.00e-04 | TF: 0.50 | Grad: 0.179 | 256.3s                                                                            
+  Epoch  13 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [04:11<00:00,  4.16batch/s, grad_norm=0.176, loss=5.8566]
+[baseline] Early stopping at epoch 13 (no improvement for 4 epochs)                                                                                                                                                                             
+[baseline] History saved to /opt/app-root/src/nlp-chatbot-project-v2.0/checkpoints/baseline_history.json
+  GPU cache cleared between models.
+
+======================================================================
+  TRAINING: attention (Bahdanau)
+======================================================================
+Loaded 1070445 pairs from /opt/app-root/src/nlp-chatbot-project-v2.0/artifacts/stage6_train_ids.jsonl
+Loaded 47791 pairs from /opt/app-root/src/nlp-chatbot-project-v2.0/artifacts/stage6_val_ids.jsonl
+Loaded 47805 pairs from /opt/app-root/src/nlp-chatbot-project-v2.0/artifacts/stage6_test_ids.jsonl
+[attention] SP model loaded for BLEU: /opt/app-root/src/nlp-chatbot-project-v2.0/artifacts/stage5_spm.model
+[build_model] model_type     : attention
+[build_model] encoder params : 19,233,792
+[build_model] bridge  params : 2,099,200
+[build_model] decoder params : 45,612,032
+[build_model] total   params : 57,345,024
+
+[attention] Trainable parameters: 57,345,024
+  GPU memory after model load: 0.25 GB allocated, 0.36 GB reserved
+[attention] Training epochs 1–20
+  Val(TF1)  : TF=1.0, full val set  — drives scheduler + checkpoint (epoch-comparable)
+  GenLoss   : TF=0.0, post-EOS mask  — note: scale shifts as Len shrinks (not epoch-comparable)
+  BLEU/F1   : corpus BLEU-4 + token F1 on 1024 val samples
+  Epoch   1 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:01<00:00,  2.89batch/s, grad_norm=0.245, loss=6.8844]
+Epoch   1/20 | Train: 6.9828 | Val(TF1): 6.9574 | PPL: 1050.95 | GenLoss: 6.3950 | BLEU: 0.00 | F1: 3.72 | Len: 5.0 | LR: 3.00e-04 | TF: 1.00 | Grad: 0.304 | 372.3s ✓                                                                          
+  Epoch   2 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:00<00:00,  2.90batch/s, grad_norm=0.239, loss=5.9193]
+Epoch   2/20 | Train: 6.3232 | Val(TF1): 5.8949 | PPL: 363.20 | GenLoss: 7.7953 | BLEU: 0.49 | F1: 9.83 | Len: 11.9 | LR: 3.00e-04 | TF: 1.00 | Grad: 0.264 | 370.7s ✓                                                                          
+  Epoch   3 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:00<00:00,  2.90batch/s, grad_norm=0.202, loss=5.5930]
+Epoch   3/20 | Train: 5.7519 | Val(TF1): 5.5991 | PPL: 270.17 | GenLoss: 7.7772 | BLEU: 0.32 | F1: 10.93 | Len: 8.0 | LR: 3.00e-04 | TF: 1.00 | Grad: 0.225 | 370.9s ✓                                                                          
+  Epoch   4 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:00<00:00,  2.90batch/s, grad_norm=0.198, loss=5.4201]
+Epoch   4/20 | Train: 5.4940 | Val(TF1): 5.3604 | PPL: 212.80 | GenLoss: 7.9312 | BLEU: 0.42 | F1: 12.02 | Len: 8.6 | LR: 3.00e-04 | TF: 1.00 | Grad: 0.226 | 370.9s ✓                                                                          
+  Epoch   5 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:01<00:00,  2.89batch/s, grad_norm=0.207, loss=5.2943]
+Epoch   5/20 | Train: 5.3407 | Val(TF1): 5.2699 | PPL: 194.41 | GenLoss: 7.9022 | BLEU: 0.56 | F1: 13.46 | Len: 9.3 | LR: 3.00e-04 | TF: 1.00 | Grad: 0.222 | 371.3s ✓                                                                          
+  Epoch   6 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:04<00:00,  2.86batch/s, grad_norm=0.224, loss=5.4206]
+[attention] Phase 2 begins (epoch 6) — resetting best_val_loss, early-stopping counter, and scheduler state                                                                                                                                     
+Epoch   6/20 | Train: 5.4492 | Val(TF1): 5.2174 | PPL: 184.46 | GenLoss: 7.1111 | BLEU: 0.76 | F1: 13.93 | Len: 9.4 | LR: 3.00e-04 | TF: 0.90 | Grad: 0.214 | 375.1s ✓
+  Epoch   7 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:05<00:00,  2.86batch/s, grad_norm=0.207, loss=5.4484]
+Epoch   7/20 | Train: 5.4972 | Val(TF1): 5.1809 | PPL: 177.83 | GenLoss: 6.7468 | BLEU: 0.89 | F1: 13.98 | Len: 9.2 | LR: 3.00e-04 | TF: 0.83 | Grad: 0.212 | 375.5s ✓                                                                          
+  Epoch   8 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:05<00:00,  2.86batch/s, grad_norm=0.225, loss=5.5782]
+Epoch   8/20 | Train: 5.5585 | Val(TF1): 5.1695 | PPL: 175.84 | GenLoss: 6.4578 | BLEU: 0.69 | F1: 13.99 | Len: 8.0 | LR: 3.00e-04 | TF: 0.77 | Grad: 0.213 | 375.3s ✓                                                                          
+  Epoch   9 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:05<00:00,  2.86batch/s, grad_norm=0.187, loss=5.6044]
+Epoch   9/20 | Train: 5.6268 | Val(TF1): 5.1636 | PPL: 174.79 | GenLoss: 6.2840 | BLEU: 0.60 | F1: 14.87 | Len: 7.8 | LR: 3.00e-04 | TF: 0.70 | Grad: 0.208 | 375.3s ✓                                                                          
+  Epoch  10 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:05<00:00,  2.86batch/s, grad_norm=0.206, loss=5.6742]
+Epoch  10/20 | Train: 5.6988 | Val(TF1): 5.1669 | PPL: 175.37 | GenLoss: 6.0781 | BLEU: 0.56 | F1: 14.45 | Len: 7.0 | LR: 3.00e-04 | TF: 0.63 | Grad: 0.206 | 375.4s                                                                            
+  Epoch  11 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:05<00:00,  2.86batch/s, grad_norm=0.186, loss=5.7433]
+Epoch  11/20 | Train: 5.7728 | Val(TF1): 5.1715 | PPL: 176.19 | GenLoss: 5.9518 | BLEU: 0.48 | F1: 14.28 | Len: 6.8 | LR: 3.00e-04 | TF: 0.57 | Grad: 0.202 | 375.8s                                                                            
+  Epoch  12 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:05<00:00,  2.86batch/s, grad_norm=0.181, loss=5.8263]
+Epoch  12/20 | Train: 5.8476 | Val(TF1): 5.1842 | PPL: 178.43 | GenLoss: 5.9100 | BLEU: 0.56 | F1: 13.91 | Len: 6.6 | LR: 3.00e-04 | TF: 0.50 | Grad: 0.200 | 375.5s                                                                            
+  Epoch  13 train: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1045/1045 [06:05<00:00,  2.86batch/s, grad_norm=0.226, loss=5.7887]
+[attention] Early stopping at epoch 13 (no improvement for 4 epochs)                                                                                                                                                                            
+[attention] History saved to /opt/app-root/src/nlp-chatbot-project-v2.0/checkpoints/attention_history.json
+
+Training complete.
+  Baseline  best val loss : 5.2015
+  Attention best val loss : 5.1636

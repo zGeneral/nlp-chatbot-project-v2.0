@@ -430,6 +430,108 @@ def log_decoded_samples(
         print(f"  {sep}")
 
 
+# ── Fixed probe questions for qualitative epoch monitoring ────────────────────
+# These are run every epoch with TF=0 (pure autoregressive) so you can track
+# whether the model's free-running generation improves over training.
+# Grouped by skill area so regressions are easy to spot.
+
+_PROBE_QUESTIONS = [
+    # Package management
+    ("pkg-1",  "how do i install a package on ubuntu"),
+    ("pkg-2",  "apt-get says unable to lock the administration directory"),
+    ("pkg-3",  "how do i remove a package and all its config files"),
+    ("pkg-4",  "how do i upgrade only one package without upgrading everything"),
+    # File system & disk
+    ("fs-1",   "my disk is full and i cant write any new files"),
+    ("fs-2",   "how do i find which directory is using the most space"),
+    ("fs-3",   "i get permission denied when i try to edit a file in etc"),
+    ("fs-4",   "how do i mount a usb drive from the command line"),
+    # Network & SSH
+    ("net-1",  "my wifi dropped after the last update and wont reconnect"),
+    ("net-2",  "ssh says connection refused when i try to connect to my server"),
+    ("net-3",  "how do i check which ports are open on my machine"),
+    # Process & performance
+    ("sys-1",  "my system is very slow and the fan is spinning loudly"),
+    ("sys-2",  "how do i kill a process that is not responding"),
+    ("sys-3",  "how do i add a new user and give them sudo access"),
+    # Errors & recovery
+    ("err-1",  "i broke my grub and the system wont boot anymore"),
+    ("err-2",  "dpkg is in a broken state and apt wont run"),
+]
+
+
+def log_probe_responses(
+    model: nn.Module,
+    device: torch.device,
+    sp_model,
+    model_type: str,
+    epoch: int,
+    config: dict,
+    amp_dtype: torch.dtype = torch.bfloat16,
+) -> None:
+    """
+    Encode each _PROBE_QUESTION, run greedy decoding (TF=0), and print responses.
+
+    These are fixed, hand-crafted Ubuntu IRC questions so every epoch produces
+    the same source strings — unlike log_decoded_samples which draws random
+    validation items. Side-by-side comparison across epochs reveals whether
+    free-running generation is improving or collapsing.
+    """
+    if sp_model is None:
+        return
+
+    model.eval()
+    _device_type = device.type if hasattr(device, "type") else str(device).split(":")[0]
+    _pad  = config.get("pad_idx", 0)
+    _eos  = config.get("eos_idx", 3)
+    _max_src = config.get("max_ctx_tokens", 50)
+    _max_tgt = config.get("max_resp_tokens", 50)
+    _special = {_pad, 1, 2, _eos}
+
+    def _encode(text: str):
+        ids = sp_model.encode(text.strip(), out_type=int)[:_max_src]
+        src = torch.tensor([ids], dtype=torch.long, device=device)
+        lengths = torch.tensor([len(ids)], dtype=torch.long, device=device)
+        return src, lengths
+
+    def _decode_ids(ids):
+        try:
+            ids = ids[:ids.index(_eos)]
+        except ValueError:
+            pass
+        return sp_model.decode([t for t in ids if t not in _special])
+
+    sep  = "─" * 80
+    sep2 = "┄" * 80
+    print(f"\n  [{model_type}] Probe responses — epoch {epoch}")
+    print(f"  {sep}")
+
+    with torch.no_grad():
+        prev_group = None
+        for tag, question in _PROBE_QUESTIONS:
+            group = tag.split("-")[0]
+            if prev_group is not None and group != prev_group:
+                print(f"  {sep2}")
+            prev_group = group
+
+            src, src_lengths = _encode(question)
+            # Build a minimal trg seed (just <sos>) so the model can start decoding
+            trg_seed = torch.full((1, _max_tgt + 2), _pad, dtype=torch.long, device=device)
+            trg_seed[0, 0] = config.get("sos_idx", 2)
+
+            with torch.amp.autocast(device_type=_device_type, dtype=amp_dtype,
+                                    enabled=_device_type == "cuda"):
+                output = model(src, src_lengths, trg_seed, teacher_forcing_ratio=0.0)
+
+            hyp_ids = output.argmax(-1)[0].cpu().tolist()
+            hyp_str = _decode_ids(hyp_ids)
+
+            print(f"  [{tag:5s}] Q: {question}")
+            print(f"         A: {hyp_str[:120] or '(empty)'}")
+
+    print(f"  {sep}\n")
+
+
 def compute_attention_entropy(
     model: nn.Module,
     loader,
@@ -741,6 +843,14 @@ def train_model(model_type: str, config: dict, device: torch.device) -> Dict[str
             n_samples=10,
             pad_idx=config.get("pad_idx", 0),
             eos_idx=config.get("eos_idx", 3),
+            amp_dtype=_amp_dtype,
+        )
+
+        # 7d-extra. Fixed probe questions — same 16 Ubuntu IRC prompts every epoch
+        # for consistent qualitative tracking across runs.
+        log_probe_responses(
+            model=model, device=device, sp_model=_sp,
+            model_type=model_type, epoch=epoch, config=config,
             amp_dtype=_amp_dtype,
         )
 

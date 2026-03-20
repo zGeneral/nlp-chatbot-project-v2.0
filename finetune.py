@@ -63,6 +63,7 @@ from train import (
     evaluate_loss,
     evaluate_generation,
     log_decoded_samples,
+    log_probe_responses,
     compute_attention_entropy,
 )
 
@@ -94,19 +95,28 @@ def finetune(
     ft_epochs: int,
     config: dict,
     device: torch.device,
+    lr_schedule: str = "cosine",
+    patience: int = 0,
 ) -> Dict[str, List]:
     """
     Fine-tune model_type from its best run-3 checkpoint.
 
     Args:
         model_type:        "baseline" or "attention"
-        ft_tf_floor:       TF floor to anneal to (e.g. 0.30)
+        ft_tf_floor:       TF floor to anneal to (e.g. 0.0 or 0.30)
         ft_tf_start:       Starting TF (should match run-3 floor, default 0.50)
         ft_anneal_epochs:  Epochs over which to linearly decay TF to floor
         ft_lr:             Initial learning rate (lower than run-3, e.g. 1e-4)
         ft_epochs:         Total fine-tune epochs
         config:            Base CONFIG dict (will be shallow-copied + patched)
         device:            torch.device
+        lr_schedule:       "cosine" | "constant" | "plateau"
+                           cosine: full LR during anneal, decays over full run (recommended)
+                           constant: fixed LR throughout
+                           plateau: ReduceLROnPlateau on gen_loss (not val_loss)
+        patience:          Early stopping patience on gen_loss (0 = disabled)
+                           Default 0 because val_loss WILL rise during TF→0 fine-tuning;
+                           using val_loss for early stopping terminates runs prematurely.
 
     Returns:
         history dict with per-epoch metrics
@@ -168,19 +178,39 @@ def finetune(
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"  Trainable parameters: {num_params:,}\n")
 
-    # ── Optimizer + scheduler — fresh, lower LR ───────────────────────────────
+    # ── Optimizer — fresh, lower LR ──────────────────────────────────────────
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=ft_lr,
         weight_decay=config.get("weight_decay", 1e-4),
     )
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=config.get("lr_scheduler_factor", 0.5),
-        patience=config.get("lr_scheduler_patience", 2),
-        min_lr=config.get("lr_min", 1e-5),
-    )
+
+    # ── LR scheduler — cosine by default (plateau is wrong for TF→0 fine-tune)
+    # ReduceLROnPlateau halves LR when val_loss stops improving. But val_loss
+    # WILL rise as TF drops — it would reduce LR exactly when the model needs
+    # full learning capacity to adapt to autoregressive generation.
+    # Cosine: full LR during annealing, smooth decay during stabilisation.
+    # Plateau (on gen_loss): available for comparison; tracks the right metric.
+    lr_schedule = lr_schedule.lower()
+    if lr_schedule == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=ft_epochs, eta_min=config.get("lr_min", 1e-5),
+        )
+        _scheduler_on_gen = False
+    elif lr_schedule == "constant":
+        scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer, factor=1.0, total_iters=ft_epochs)
+        _scheduler_on_gen = False
+    else:  # "plateau" — steps on gen_loss, not val_loss
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min",
+            factor=config.get("lr_scheduler_factor", 0.5),
+            patience=config.get("lr_scheduler_patience", 3),
+            min_lr=config.get("lr_min", 1e-5),
+        )
+        _scheduler_on_gen = True
+
+    print(f"  LR schedule       : {lr_schedule}  (early-stop patience={patience}, "
+          f"0=disabled)")
 
     # ── Loss ──────────────────────────────────────────────────────────────────
     criterion = nn.CrossEntropyLoss(
@@ -198,9 +228,9 @@ def finetune(
     }
 
     best_val_loss = float("inf")
-    best_gen_loss = float("inf")   # separate criterion for free-running quality
-    _patience     = config.get("patience", 6)
-    _no_improve   = 0
+    best_gen_loss = float("inf")   # primary criterion for ft checkpoint selection
+    _patience     = patience       # 0 = disabled (default for fine-tuning)
+    _no_improve   = 0              # tracks gen_loss stagnation (not val_loss)
     global_step   = 0
 
     # Build a ft_config that overrides the TF schedule so train_epoch picks up
@@ -259,18 +289,29 @@ def finetune(
                 device=device, n_samples=256,
             )
 
-        # ── Decoded samples ───────────────────────────────────────────────────
+        # ── Decoded samples (val-set items, random each epoch) ───────────────
         log_decoded_samples(
             model=model, loader=val_loader, device=device,
             sp_model=_sp, n_samples=10,
             model_type=model_type, epoch=epoch,
         )
 
+        # ── Fixed probe questions (same 16 Ubuntu IRC prompts every epoch) ────
+        log_probe_responses(
+            model=model, device=device, sp_model=_sp,
+            model_type=model_type, epoch=epoch, config=ft_config,
+        )
+
         lr = optimizer.param_groups[0]["lr"]
         elapsed = time.time() - t0
 
         # ── Scheduler step ────────────────────────────────────────────────────
-        scheduler.step(val_loss)
+        # cosine / constant: step() takes no metric argument
+        # plateau: step on gen_loss, NOT val_loss — val_loss WILL rise during TF→0
+        if _scheduler_on_gen:
+            scheduler.step(gen_loss)
+        else:
+            scheduler.step()
 
         # ── Build current checkpoint data (always, not just on improvement) ──
         # Defined here so both best-val and best-gen checkpoints can use it,
@@ -342,15 +383,17 @@ def finetune(
                 print(f"  [ft] F1 checkpoint saved "
                       f"(smoothed F1 {_f1_smooth_prev:.2f}→{_f1_smooth_now:.2f})")
 
-        # ── Early stopping ────────────────────────────────────────────────────
+        # ── Early stopping on gen_loss (disabled by default: patience=0) ───────
+        # We do NOT stop on val_loss — it will rise as TF→0 by design.
+        # If patience>0, stop only when free-running gen_loss stops improving.
         if _patience > 0:
-            if _improved:
+            if _gen_improved:
                 _no_improve = 0
             else:
                 _no_improve += 1
                 if _no_improve >= _patience:
                     print(f"\n  [{model_type}] Early stopping at ft-epoch {epoch} "
-                          f"(no improvement for {_patience} epochs)")
+                          f"(gen_loss no improvement for {_patience} epochs)")
                     _save_last(model, optimizer, epoch, global_step, model_type,
                                val_loss, _no_improve, config, history, ft_last)
                     break
@@ -360,7 +403,7 @@ def finetune(
                    val_loss, _no_improve, config, history, ft_last)
 
         # ── Epoch line ────────────────────────────────────────────────────────
-        _mark   = " ✓" if _improved else ""
+        _mark   = " ✓" if _gen_improved else ""   # ✓ marks gen_loss improvement
         _ent    = f"{attn_entropy:.3f}" if attn_entropy is not None else "  n/a"
         print(
             f"  Ep {epoch:2d}/{ft_epochs}  "
@@ -426,6 +469,11 @@ def main():
                         help="Starting learning rate (default: 1e-4, lower than run-3)")
     parser.add_argument("--epochs",         type=int,   default=12,
                         help="Total fine-tune epochs (default: 12)")
+    parser.add_argument("--lr-schedule",    type=str,   default="cosine",
+                        choices=["cosine", "constant", "plateau"],
+                        help="LR schedule: cosine (default), constant, or plateau on gen_loss")
+    parser.add_argument("--patience",       type=int,   default=0,
+                        help="Early-stop patience on gen_loss; 0=disabled (default)")
     parser.add_argument("--seed",           type=int,   default=None)
     args = parser.parse_args()
 
@@ -450,6 +498,8 @@ def main():
             ft_epochs=args.epochs,
             config=CONFIG,
             device=device,
+            lr_schedule=args.lr_schedule,
+            patience=args.patience,
         )
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

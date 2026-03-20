@@ -1,0 +1,134 @@
+[
+  {
+    "prompt": "how do i install vim",
+    "base_greedy": "sudo apt-get install vim-full you vim vim vim vim vim vim vim vim vim vim vim vim vim vim vim vim",
+    "base_greedy_lp": -1.7046,
+    "base_beam": "apt-get install vim sudo apt-get install vim",
+    "base_beam_sc": -1.9127,
+    "attn_greedy": "sudo apt-get install vim-full vim-full vim-full",
+    "attn_greedy_lp": -1.682,
+    "attn_beam": "apt-get install vim sudo apt-get install vim",
+    "attn_beam_sc": -1.9555
+  },
+  {
+    "prompt": "apt-get is broken and i cant install anything",
+    "base_greedy": "what you you apt-get update sudo apt-get upgrade",
+    "base_greedy_lp": -1.5452,
+    "base_beam": "sudo apt-get update sudo apt-get dist-upgrade",
+    "base_beam_sc": -2.2879,
+    "attn_greedy": "what you you apt-get installf install",
+    "attn_greedy_lp": -1.863,
+    "attn_beam": "sudo apt-get update sudo apt-get dist-upgrade",
+    "attn_beam_sc": -2.1406
+  },
+  {
+    "prompt": "how do i remove a package completely including config files",
+    "base_greedy": "dpkg -l packagename' remove the package",
+    "base_greedy_lp": -2.0538,
+    "base_beam": "sudo apt-get remove --purge packagename sudo apt-get remove --purge packagename",
+    "base_beam_sc": -2.562,
+    "attn_greedy": "dpkg -l packagename' you-get remove packagename",
+    "attn_greedy_lp": -2.0795,
+    "attn_beam": "sudo apt-get remove --purge packagename sudo apt-get remove --purge packagename",
+    "attn_beam_sc": -2.6025
+  },
+  {
+    "prompt": "my hard drive is full what can i do",
+    "base_greedy": "what you you to to the drive",
+    "base_greedy_lp": -2.7426,
+    "base_beam": "are you trying to format the drive",
+    "base_beam_sc": -3.3282,
+    "attn_greedy": "what is the you you you you",
+    "attn_greedy_lp": -2.911,
+    "attn_beam": "do you want to mount the drive",
+    "attn_beam_sc": -3.7264
+  },
+  {
+    "prompt": "how do i find large files on my system",
+    "base_greedy": "du -h - du -h - du -h",
+    "base_greedy_lp": -2.0292,
+    "base_beam": "du - du - du - du -h",
+    "base_beam_sc": -3.6911,
+    "attn_greedy": "df -h' you -h' -h",
+    "attn_greedy_lp": -2.2837,
+    "attn_beam": "df -h or du -h or du -h",
+    "attn_beam_sc": -3.8645
+  },
+  {
+    "prompt": "permission denied when i try to write to a file",
+    "base_greedy": "what you you to to chmod 777",
+    "base_greedy_lp": -2.5481,
+    "base_beam": "are you trying to chmod the file",
+    "base_beam_sc": -3.3464,
+    "attn_greedy": "what is the file you you you",
+    "attn_greedy_lp": -2.5741,
+    "attn_beam": "are you trying to write to the file",
+    "attn_beam_sc": -3.0561
+  },
+  {
+    "prompt": "my wifi is not working after upgrade",
+    "base_greedy": "what you you the the the the",
+    "base_greedy_lp": -2.9605,
+    "base_beam": "do you have a wireless wireless card",
+    "base_beam_sc": -3.4368,
+    "attn_greedy": "what you you the the the the",
+    "attn_greedy_lp": -2.9977,
+    "attn_beam": "do you have a wifi card card",
+    "attn_beam_sc": -3.7
+  },
+  {
+    "prompt": "how do i check my ip address",
+    "base_greedy": "ifconfig ifconfig -a you ifconfig eth0",
+    "base_greedy_lp": -2.3571,
+    "base_beam": "ifconfig ifconfig eth0 you ifconfig eth0",
+    "base_beam_sc": -4.3203,
+    "attn_greedy": "ifconfig ifconfig -a' you you",
+    "attn_greedy_lp": -2.6936,
+    "attn_beam": "ifconfig ip address the ip of your router",
+    "attn_beam_sc": -4.3282
+  },
+  {
+    "prompt": "my system is very slow what should i check",
+    "base_greedy": "what you you the cpu usage and",
+    "base_greedy_lp": -2.9687,
+    "base_beam": "if you want to run top of your cpu",
+    "base_beam_sc": -4.6969,
+    "attn_greedy": "what is the you you the the",
+    "attn_greedy_lp": -3.0647,
+    "attn_beam": "check the logs and see what is eating up your cpu",
+    "attn_beam_sc": -4.5854
+  },
+  {
+    "prompt": "how do i see what processes are running",
+    "base_greedy": "ps -ef grep ps aux grep ps aux grep",
+    "base_greedy_lp": -2.001,
+    "base_beam": "ps ps aux grep ps aux grep ps",
+    "base_beam_sc": -3.783,
+    "attn_greedy": "ps -ef grep - ps aux grep",
+    "attn_greedy_lp": -1.9892,
+    "attn_beam": "ps ps aux grep ps aux grep",
+    "attn_beam_sc": -3.6613
+  },
+  {
+    "prompt": "i get a segfault when running my program",
+    "base_greedy": "what you you the the the the",
+    "base_greedy_lp": -2.9259,
+    "base_beam": "are you trying to run a program",
+    "base_beam_sc": -3.4521,
+    "attn_greedy": "what you you the to run it",
+    "attn_greedy_lp": -2.6871,
+    "attn_beam": "are you trying to run a program",
+    "attn_beam_sc": -3.3176
+  },
+  {
+    "prompt": "bash command not found error how to fix",
+    "base_greedy": "what you you to to the you",
+    "base_greedy_lp": -2.8043,
+    "base_beam": "did you try sudo dpkg --configure -a'",
+    "base_beam_sc": -2.6068,
+    "attn_greedy": "what is the error you you you",
+    "attn_greedy_lp": -2.5713,
+    "attn_beam": "sudo apt-get update sudo apt-get upgrade sudo apt-get dist-upgrade",
+    "attn_beam_sc": -2.3465
+  }
+]
